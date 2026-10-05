@@ -84,3 +84,27 @@ class AssignRoleSerializer(serializers.Serializer):
             )
 
         return role
+
+class UserListSerializer(serializers.ModelSerializer):
+
+    role = serializers.CharField(
+        source="role.name",
+        read_only=True
+    )
+
+    class Meta:
+        model = User
+
+        fields = [
+            "id",
+            "username",
+            "first_name",
+            "last_name",
+            "email",
+            "role",
+            "is_active",
+        ]
+
+class UserStatusSerializer(serializers.Serializer):
+
+    is_active = serializers.BooleanField()

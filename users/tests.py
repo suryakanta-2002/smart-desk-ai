@@ -1,8 +1,9 @@
 from django.test import TestCase
-from rest_framework.test import APITestCase
+from rest_framework.test import APITestCase, APIClient
 from rest_framework_simplejwt.tokens import RefreshToken
 from .models import User, Role, Permission, RolePermission
 from .serializers import RegisterSerializer, LoginSerializer
+from rest_framework import status
 
 
 class RegisterSerializerTest(TestCase):
@@ -227,11 +228,6 @@ class RolePermissionAPITest(APITestCase):
         self.employee_role = Role.objects.get(
             name="Employee"
         )
-
-        self.assign_roles_permission = Permission.objects.get(
-            name="assign_roles"
-        )
-
         self.admin_user = User.objects.create_user(
             username="admin_test",
             email="admin_test@test.com",
@@ -295,4 +291,426 @@ class RolePermissionAPITest(APITestCase):
             self.target_user.role.name,
             "Manager"
         )
-# Create your tests here.
+
+class UserListAPITest(APITestCase):
+
+    def setUp(self):
+
+        self.admin_role = Role.objects.get(
+            name="Admin"
+        )
+
+        self.manager_role = Role.objects.get(
+            name="Manager"
+        )
+
+        self.employee_role = Role.objects.get(
+            name="Employee"
+        )
+
+        self.admin_user = User.objects.create_user(
+            username="list_admin",
+            email="list_admin@test.com",
+            password="Test@12345",
+            role=self.admin_role
+        )
+
+        self.manager_user = User.objects.create_user(
+            username="list_manager",
+            email="list_manager@test.com",
+            password="Test@12345",
+            role=self.manager_role
+        )
+
+        self.employee_user = User.objects.create_user(
+            username="list_employee",
+            email="list_employee@test.com",
+            password="Test@12345",
+            role=self.employee_role
+        )
+
+        self.target_user = User.objects.create_user(
+            username="list_target",
+            email="list_target@test.com",
+            password="Test@12345",
+            role=self.employee_role
+        )
+
+    def get_access_token(self, user):
+
+        refresh = RefreshToken.for_user(user)
+
+        return str(refresh.access_token)
+
+    def test_admin_can_list_users(self):
+
+        token = self.get_access_token(
+            self.admin_user
+        )
+
+        self.client.credentials(
+            HTTP_AUTHORIZATION=f"Bearer {token}"
+        )
+
+        response = self.client.get(
+            "/api/auth/users/"
+        )
+
+        self.assertEqual(
+            response.status_code,
+            200
+        )
+
+        self.assertTrue(
+            isinstance(response.data, list)
+        )
+
+    def test_manager_cannot_list_users(self):
+
+        token = self.get_access_token(
+            self.manager_user
+        )
+
+        self.client.credentials(
+            HTTP_AUTHORIZATION=f"Bearer {token}"
+        )
+
+        response = self.client.get(
+            "/api/auth/users/"
+        )
+
+        self.assertEqual(
+            response.status_code,
+            403
+        )
+
+    def test_employee_cannot_list_users(self):
+
+        token = self.get_access_token(
+            self.employee_user
+        )
+
+        self.client.credentials(
+            HTTP_AUTHORIZATION=f"Bearer {token}"
+        )
+
+        response = self.client.get(
+            "/api/auth/users/"
+        )
+
+        self.assertEqual(
+            response.status_code,
+            403
+        )
+
+    def test_unauthenticated_user_cannot_list_users(self):
+
+        response = self.client.get(
+            "/api/auth/users/"
+        )
+
+        self.assertEqual(
+            response.status_code,
+            401
+        )
+
+class UserDetailAPITest(APITestCase):
+
+    def setUp(self):
+        self.admin_role = Role.objects.get(name="Admin")
+        self.manager_role = Role.objects.get(name="Manager")
+        self.employee_role = Role.objects.get(name="Employee")
+
+        self.admin_user = User.objects.create_user(
+            username="detail_admin",
+            email="detail_admin@test.com",
+            password="Test@12345",
+            role=self.admin_role
+        )
+
+        self.manager_user = User.objects.create_user(
+            username="detail_manager",
+            email="detail_manager@test.com",
+            password="Test@12345",
+            role=self.manager_role
+        )
+
+        self.employee_user = User.objects.create_user(
+            username="detail_employee",
+            email="detail_employee@test.com",
+            password="Test@12345",
+            role=self.employee_role
+        )
+
+        self.target_user = User.objects.create_user(
+            username="detail_target",
+            email="detail_target@test.com",
+            password="Test@12345",
+            role=self.employee_role
+        )
+
+    def get_access_token(self, user):
+        refresh = RefreshToken.for_user(user)
+        return str(refresh.access_token)
+
+    def test_admin_can_view_user_detail(self):
+        token = self.get_access_token(self.admin_user)
+
+        self.client.credentials(
+            HTTP_AUTHORIZATION=f"Bearer {token}"
+        )
+
+        response = self.client.get(
+            f"/api/auth/users/{self.target_user.id}/"
+        )
+
+        self.assertEqual(
+            response.status_code,
+            200
+        )
+
+        self.assertEqual(
+            response.data["id"],
+            self.target_user.id
+        )
+
+        self.assertEqual(
+            response.data["username"],
+            "detail_target"
+        )
+
+    def test_manager_cannot_view_user_detail(self):
+        token = self.get_access_token(self.manager_user)
+
+        self.client.credentials(
+            HTTP_AUTHORIZATION=f"Bearer {token}"
+        )
+
+        response = self.client.get(
+            f"/api/auth/users/{self.target_user.id}/"
+        )
+
+        self.assertEqual(
+            response.status_code,
+            403
+        )
+
+    def test_employee_cannot_view_user_detail(self):
+        token = self.get_access_token(self.employee_user)
+
+        self.client.credentials(
+            HTTP_AUTHORIZATION=f"Bearer {token}"
+        )
+
+        response = self.client.get(
+            f"/api/auth/users/{self.target_user.id}/"
+        )
+
+        self.assertEqual(
+            response.status_code,
+            403
+        )
+
+    def test_unauthenticated_user_cannot_view_user_detail(self):
+        response = self.client.get(
+            f"/api/auth/users/{self.target_user.id}/"
+        )
+
+        self.assertEqual(
+            response.status_code,
+            401
+        )
+
+    def test_admin_get_invalid_user_detail(self):
+        token = self.get_access_token(self.admin_user)
+
+        self.client.credentials(
+            HTTP_AUTHORIZATION=f"Bearer {token}"
+        )
+
+        response = self.client.get(
+            "/api/auth/users/99999/"
+        )
+
+        self.assertEqual(
+            response.status_code,
+            404
+        )
+
+        self.assertEqual(
+            response.data["detail"],
+            "User not found."
+        )
+
+class UserStatusAPITest(APITestCase):
+
+    def setUp(self):
+        self.client = APIClient()
+
+        self.role_admin = Role.objects.get(
+            name="Admin"
+        )
+
+        self.admin = User.objects.create_user(
+            username="status_admin",
+            email="status_admin@test.com",
+            password="Test@12345",
+            role=self.role_admin
+        )
+
+        self.target_user = User.objects.create_user(
+            username="status_user",
+            email="status_user@test.com",
+            password="Test@12345",
+            role=Role.objects.get(name="Employee")
+        )
+
+        self.client.force_authenticate(
+            user=self.admin
+        )
+
+    def test_admin_can_deactivate_user(self):
+
+        response = self.client.patch(
+            f"/api/auth/users/{self.target_user.id}/status/",
+            {
+                "is_active": False
+            },
+            format="json"
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_200_OK
+        )
+
+        self.target_user.refresh_from_db()
+
+        self.assertFalse(
+            self.target_user.is_active
+        )
+
+    def test_admin_can_activate_user(self):
+
+        self.target_user.is_active = False
+        self.target_user.save()
+
+        response = self.client.patch(
+            f"/api/auth/users/{self.target_user.id}/status/",
+            {
+                "is_active": True
+            },
+            format="json"
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_200_OK
+        )
+
+        self.target_user.refresh_from_db()
+
+        self.assertTrue(
+            self.target_user.is_active
+        )
+
+
+    def test_manager_cannot_change_user_status(self):
+        manager = User.objects.create_user(
+            username="status_manager",
+            email="status_manager@test.com",
+            password="Test@12345",
+            role=Role.objects.get(name="Manager")
+        )
+
+        self.client.force_authenticate(
+            user=manager
+        )
+
+        response = self.client.patch(
+            f"/api/auth/users/{self.target_user.id}/status/",
+            {
+                "is_active": False
+            },
+            format="json"
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_403_FORBIDDEN
+        )
+
+
+    def test_employee_cannot_change_user_status(self):
+
+        employee = User.objects.create_user(
+            username="status_employee",
+            email="status_employee@test.com",
+            password="Test@12345",
+            role=Role.objects.get(name="Employee")
+        )
+
+        self.client.force_authenticate(
+            user=employee
+        )
+
+        response = self.client.patch(
+            f"/api/auth/users/{self.target_user.id}/status/",
+            {
+                "is_active": False
+            },
+            format="json"
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_403_FORBIDDEN
+        )
+
+
+    def test_unauthenticated_user_cannot_change_status(self):
+        self.client.force_authenticate(user=None)
+        response = self.client.patch(
+            f"/api/auth/users/{self.target_user.id}/status/",
+            {
+                "is_active": False
+            },
+            format="json"
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_401_UNAUTHORIZED
+        )
+
+    def test_invalid_user_id_returns_404(self):
+
+        response = self.client.patch(
+            "/api/auth/users/99999/status/",
+            {
+                "is_active": False
+            },
+            format="json"
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_404_NOT_FOUND
+        )
+
+
+    def test_invalid_is_active_returns_400(self):
+
+        response = self.client.patch(
+            f"/api/auth/users/{self.target_user.id}/status/",
+            {
+                "is_active": "hello"
+            },
+            format="json"
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_400_BAD_REQUEST
+        )
+
