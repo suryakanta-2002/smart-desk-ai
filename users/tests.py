@@ -4,7 +4,7 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from .models import User, Role, Permission, RolePermission
 from .serializers import RegisterSerializer, LoginSerializer
 from rest_framework import status
-
+from .permissions import has_permission
 
 class RegisterSerializerTest(TestCase):
 
@@ -714,3 +714,109 @@ class UserStatusAPITest(APITestCase):
             status.HTTP_400_BAD_REQUEST
         )
 
+class ManagerAccessControlTest(APITestCase):
+
+    def setUp(self):
+
+        self.manager_role = Role.objects.get(
+            name="Manager"
+        )
+
+        self.employee_role = Role.objects.get(
+            name="Employee"
+        )
+
+        self.manager_user = User.objects.create_user(
+            username="manager_access",
+            email="manager_access@test.com",
+            password="Test@12345",
+            role=self.manager_role
+        )
+
+        self.employee_user = User.objects.create_user(
+            username="employee_access",
+            email="employee_access@test.com",
+            password="Test@12345",
+            role=self.employee_role
+        )
+
+    def test_manager_can_view_team_reports(self):
+
+        self.assertTrue(
+            has_permission(
+                self.manager_user,
+                "view_team_reports"
+            )
+        )
+
+    def test_manager_can_use_ai_assistant(self):
+
+        self.assertTrue(
+            has_permission(
+                self.manager_user,
+                "use_ai_assistant"
+            )
+        )
+
+    def test_manager_can_upload_documents(self):
+
+        self.assertTrue(
+            has_permission(
+                self.manager_user,
+                "upload_documents"
+            )
+        )
+
+    def test_manager_can_view_own_documents(self):
+
+        self.assertTrue(
+            has_permission(
+                self.manager_user,
+                "view_own_documents"
+            )
+        )
+
+    def test_manager_can_analyze_data(self):
+
+        self.assertTrue(
+            has_permission(
+                self.manager_user,
+                "analyze_data"
+            )
+        )
+
+    def test_manager_can_generate_reports(self):
+
+        self.assertTrue(
+            has_permission(
+                self.manager_user,
+                "generate_reports"
+            )
+        )
+
+    def test_manager_cannot_manage_users(self):
+
+        self.assertFalse(
+            has_permission(
+                self.manager_user,
+                "manage_users"
+            )
+        )
+
+    def test_manager_cannot_assign_roles(self):
+
+        self.assertFalse(
+            has_permission(
+                self.manager_user,
+                "assign_roles"
+            )
+        )
+
+    def test_employee_cannot_view_team_reports(self):
+
+        self.assertFalse(
+            has_permission(
+                self.employee_user,
+                "view_team_reports"
+            )
+        )
