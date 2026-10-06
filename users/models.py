@@ -1,5 +1,6 @@
 from django.contrib.auth.models import AbstractUser
 from django.db import models
+
 class Role(models.Model):
 
     name = models.CharField(
@@ -29,6 +30,13 @@ class User(AbstractUser):
         related_name="users",
         null=True,
         blank=True
+    )
+    manager = models.ForeignKey(
+        "self",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="team_members"
     )
 
 class Permission(models.Model):
@@ -66,4 +74,3 @@ class RolePermission(models.Model):
 
     def __str__(self):
         return f"{self.role.name} - {self.permission.name}"
-# Create your models here.
