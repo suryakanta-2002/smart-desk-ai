@@ -97,3 +97,104 @@ class AIChatAPITest(APITestCase):
             "Python is a programming language.",
         )
         mock_client.models.generate_content.assert_called_once()
+
+    
+    @patch("ai_assistant.views.os.getenv", return_value="test-key")
+    @patch("ai_assistant.views.genai.Client")
+    def test_gemini_timeout_returns_504(
+        self,
+        mock_client_class,
+        mock_getenv,
+    ):
+        from httpx import TimeoutException
+
+        RolePermission.objects.get_or_create(
+            role=self.employee_role,
+            permission=self.permission,
+        )
+        self.authenticate(self.employee)
+
+        mock_client = mock_client_class.return_value
+        mock_client.models.generate_content.side_effect = (
+            TimeoutException("Request timed out")
+        )
+
+        response = self.client.post(
+            "/api/ai/chat/",
+            {"message": "Explain Python decorators."},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 504)
+        self.assertEqual(
+            response.data["detail"],
+            "The AI service timed out. Please try again later.",
+        )
+
+    
+    @patch("ai_assistant.views.os.getenv", return_value="test-key")
+    @patch("ai_assistant.views.genai.Client")
+    def test_gemini_api_error_returns_502(
+        self,
+        mock_client_class,
+        mock_getenv,
+    ):
+        from google.genai import errors
+
+        RolePermission.objects.get_or_create(
+            role=self.employee_role,
+            permission=self.permission,
+        )
+        self.authenticate(self.employee)
+
+        mock_client = mock_client_class.return_value
+        mock_client.models.generate_content.side_effect = (
+            errors.APIError(
+                500,
+                {"error": {"message": "Simulated API failure"}},
+            )
+        )
+
+        response = self.client.post(
+            "/api/ai/chat/",
+            {"message": "Explain Python decorators."},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 502)
+        self.assertEqual(
+            response.data["detail"],
+            "The AI service is temporarily unavailable. "
+            "Please try again later.",
+        )
+
+    
+    @patch("ai_assistant.views.os.getenv", return_value="test-key")
+    @patch("ai_assistant.views.genai.Client")
+    def test_empty_gemini_response_returns_502(
+        self,
+        mock_client_class,
+        mock_getenv,
+    ):
+        RolePermission.objects.get_or_create(
+            role=self.employee_role,
+            permission=self.permission,
+        )
+        self.authenticate(self.employee)
+
+        mock_client = mock_client_class.return_value
+        mock_client.models.generate_content.return_value.text = ""
+
+        response = self.client.post(
+            "/api/ai/chat/",
+            {"message": "Explain Python decorators."},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 502)
+        self.assertEqual(
+            response.data["detail"],
+            "Gemini returned an empty response.",
+        )
+
+

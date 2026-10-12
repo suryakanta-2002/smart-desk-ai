@@ -3,7 +3,7 @@ import os
 
 from google import genai
 from google.genai import errors
-
+from httpx import TimeoutException
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -45,7 +45,10 @@ class AIChatView(APIView):
             )
 
         try:
-            client = genai.Client(api_key=api_key)
+            client = genai.Client(
+                api_key=api_key,
+                http_options={"timeout":30000},
+            )
 
             response = client.models.generate_content(
                 model="gemini-3.5-flash",
@@ -61,6 +64,17 @@ class AIChatView(APIView):
             return Response(
                 {"answer": response.text},
                 status=status.HTTP_200_OK,
+            )
+
+        except TimeoutException:
+            return Response(
+                {
+                    "detail": (
+                        "The AI service timed out. "
+                        "Please try again later."
+                    )
+                },
+                status=status.HTTP_504_GATEWAY_TIMEOUT,
             )
 
         except errors.APIError:
