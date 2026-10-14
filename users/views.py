@@ -6,31 +6,41 @@ from .models import User
 from .permissions import has_permission
 from .serializers import RegisterSerializer, LoginSerializer, AssignRoleSerializer, UserListSerializer, UserStatusSerializer
 from rest_framework.permissions import IsAuthenticated
+from drf_spectacular.utils import extend_schema
 
 class RegisterView(APIView):
-
+    @extend_schema(
+        request=RegisterSerializer,
+        responses={
+            201: {
+                "type": "object",
+                "properties": {
+                    "message": {"type": "string"},
+                    "user_id": {"type": "integer"},
+                    "username": {"type": "string"},
+                    "email": {"type": "string"},
+                },
+            },
+            400: {"description": "Invalid registration data"},
+        },
+        description="Register a new user account.",
+    )
     def post(self, request):
         serializer = RegisterSerializer(data=request.data)
 
         if serializer.is_valid():
             user = serializer.save()
-
-            return Response(
-                {
-                    "message": "User registered successfully.",
-                    "user_id": user.id,
-                    "username": user.username,
-                    "email": user.email,
-                },
-                status=status.HTTP_201_CREATED
-            )
+            return Response({
+                "message": "User registered successfully.",
+                "user_id": user.id,
+                "username": user.username,
+                "email": user.email,
+            }, status=status.HTTP_201_CREATED)
 
         return Response(
             serializer.errors,
-            status=status.HTTP_400_BAD_REQUEST
+            status=status.HTTP_400_BAD_REQUEST,
         )
-
-
 class LoginView(APIView):
 
     def post(self, request):
