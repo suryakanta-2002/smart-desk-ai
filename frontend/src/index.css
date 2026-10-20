@@ -1,0 +1,42 @@
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+  font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    sans-serif;
+  background: #f3f6fc;
+}
+
+.login-page {
+  background:
+    radial-gradient(circle at top left, #dbeafe 0, transparent 40%),
+    #f3f6fc;
+}
+
+.brand-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 60px;
+  height: 60px;
+  border-radius: 18px;
+  background: #0d6efd;
+  color: #fff;
+  font-size: 20px;
+  font-weight: 800;
+  letter-spacing: -1px;
+}
+
+.card {
+  border-radius: 20px;
+}
+
+.form-control {
+  border-radius: 10px;
+}
+
+.btn {
+  border-radius: 10px;
+  font-weight: 600;
+}

@@ -108,3 +108,26 @@ class UserListSerializer(serializers.ModelSerializer):
 class UserStatusSerializer(serializers.Serializer):
 
     is_active = serializers.BooleanField()
+
+
+class ProfileUpdateSerializer(serializers.ModelSerializer):
+
+    class Meta:
+        model = User
+        fields = [
+            "first_name",
+            "last_name",
+            "email",
+        ]
+
+    def validate_email(self, value):
+        user = self.instance
+
+        if User.objects.filter(email__iexact=value).exclude(
+            id=user.id
+        ).exists():
+            raise serializers.ValidationError(
+                "This email is already in use."
+            )
+
+        return value

@@ -4,10 +4,9 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from .models import User
 from .permissions import has_permission
-from .serializers import RegisterSerializer, LoginSerializer, AssignRoleSerializer, UserListSerializer, UserStatusSerializer
+from .serializers import RegisterSerializer, LoginSerializer, AssignRoleSerializer, UserListSerializer, UserStatusSerializer, ProfileUpdateSerializer
 from rest_framework.permissions import IsAuthenticated
 from drf_spectacular.utils import extend_schema
-
 class RegisterView(APIView):
     @extend_schema(
         request=RegisterSerializer,
@@ -68,21 +67,49 @@ class LoginView(APIView):
             status=status.HTTP_400_BAD_REQUEST
         )
 
-class ProfileView(APIView):
 
+class ProfileView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-
         user = request.user
 
         return Response(
             {
                 "user_id": user.id,
                 "username": user.username,
+                "first_name": user.first_name,
+                "last_name": user.last_name,
                 "email": user.email,
             },
-            status=status.HTTP_200_OK
+            status=status.HTTP_200_OK,
+        )
+
+    def patch(self, request):
+        serializer = ProfileUpdateSerializer(
+            request.user,
+            data=request.data,
+            partial=True,
+        )
+
+        if serializer.is_valid():
+            serializer.save()
+            user = request.user
+
+            return Response(
+                {
+                    "user_id": user.id,
+                    "username": user.username,
+                    "first_name": user.first_name,
+                    "last_name": user.last_name,
+                    "email": user.email,
+                },
+                status=status.HTTP_200_OK,
+            )
+
+        return Response(
+            serializer.errors,
+            status=status.HTTP_400_BAD_REQUEST,
         )
 
 class AssignRoleView(APIView):

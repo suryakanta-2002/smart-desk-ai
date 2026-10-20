@@ -58,6 +58,7 @@ class Permission(models.Model):
         return self.name
 
 
+
 class RolePermission(models.Model):
 
     role = models.ForeignKey(
@@ -71,6 +72,14 @@ class RolePermission(models.Model):
         on_delete=models.CASCADE,
         related_name="role_permissions"
     )
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["role", "permission"],
+                name="unique_role_permission"
+            )
+        ]
 
     def __str__(self):
         return f"{self.role.name} - {self.permission.name}"

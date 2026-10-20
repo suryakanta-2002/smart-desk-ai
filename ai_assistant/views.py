@@ -1,16 +1,21 @@
 
 import os
 import time
+import logging
+
 from google import genai
 from google.genai import errors
 from httpx import TimeoutException
 
+from django.db import transaction
 from django.shortcuts import get_object_or_404
 
 from rest_framework import generics, status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
+
+from drf_spectacular.utils import extend_schema
 
 from users.permissions import has_permission
 
@@ -19,12 +24,21 @@ from .serializers import (
     AIChatSerializer,
     ChatConversationSerializer,
 )
-from drf_spectacular.utils import extend_schema
+
+
+logger = logging.getLogger(__name__)
+
+# Fast model first; standard Flash is the fallback.
+GEMINI_MODELS = (
+    "gemini-3.5-flash-lite",
+    "gemini-3.5-flash",
+)
+
+MAX_HISTORY_MESSAGES = 12
+MAX_ATTEMPTS_PER_MODEL = 2
+
 
 def generate_gemini_response(client, conversation_history, message):
-    max_attempts = 3
-
-    # Convert database messages to Gemini's format.
     contents = []
 
     for chat_message in conversation_history:
@@ -39,104 +53,114 @@ def generate_gemini_response(client, conversation_history, message):
             "parts": [{"text": chat_message.content}],
         })
 
-    # Add the current user message.
     contents.append({
         "role": "user",
         "parts": [{"text": message}],
     })
 
-    for attempt in range(max_attempts):
-        try:
-            return client.models.generate_content(
-                model="gemini-3.5-flash",
-                contents=contents,
-            )
+    last_error = None
 
-        except errors.APIError as exc:
-            error_code = getattr(exc, "code", None)
+    for model in GEMINI_MODELS:
+        for attempt in range(MAX_ATTEMPTS_PER_MODEL):
+            try:
+                response = client.models.generate_content(
+                    model=model,
+                    contents=contents,
+                )
 
-            if error_code not in (429, 500, 502, 503, 504):
-                raise
+                if response.text:
+                    logger.info("AI response generated using %s", model)
+                    return response
 
-            if attempt == max_attempts - 1:
-                raise
+                logger.warning("Gemini returned an empty response for %s", model)
+                break
 
-            wait_seconds = 2 ** attempt
+            except errors.APIError as exc:
+                last_error = exc
+                error_code = getattr(exc, "code", None)
 
-            print(
-                f"Gemini temporary error {error_code}. "
-                f"Retrying in {wait_seconds} seconds..."
-            )
+                # Retry only temporary service/rate-limit errors.
+                if error_code not in (429, 500, 502, 503, 504):
+                    raise
 
-            time.sleep(wait_seconds)
+                if attempt + 1 < MAX_ATTEMPTS_PER_MODEL:
+                    wait_seconds = 1 + attempt
+                    logger.warning(
+                        "Gemini model %s returned HTTP %s; retrying in %s second(s)",
+                        model,
+                        error_code,
+                        wait_seconds,
+                    )
+                    time.sleep(wait_seconds)
+                else:
+                    logger.warning(
+                        "Gemini model %s failed after retries with HTTP %s",
+                        model,
+                        error_code,
+                    )
+
+    if last_error:
+        raise last_error
+
+    return None
 
 
 class AIChatView(APIView):
     permission_classes = [IsAuthenticated]
+
     @extend_schema(
         request=AIChatSerializer,
         responses={
             200: {
                 "type": "object",
                 "properties": {
-                    "conversation_id": {
-                        "type": "integer"
-                    },
-                    "answer": {
-                        "type": "string"
-                    },
+                    "conversation_id": {"type": "integer"},
+                    "answer": {"type": "string"},
                 },
             },
         },
     )
     def post(self, request):
-        # Step 1: Check permission
         if not has_permission(request.user, "use_ai_assistant"):
             return Response(
-                {
-                    "detail": (
-                        "You do not have permission "
-                        "to use the AI assistant."
-                    )
-                },
+                {"detail": "You do not have permission to use the AI assistant."},
                 status=status.HTTP_403_FORBIDDEN,
             )
 
-        # Step 2: Validate request data
         serializer = AIChatSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
         message = serializer.validated_data["message"]
         conversation_id = serializer.validated_data["conversation_id"]
 
-        # Step 3: Ensure conversation belongs to current user
         conversation = get_object_or_404(
             ChatConversation,
             id=conversation_id,
             user=request.user,
         )
 
-        # Step 4: Check API key
         api_key = os.getenv("GEMINI_API_KEY")
 
         if not api_key:
+            logger.error("GEMINI_API_KEY is not configured.")
             return Response(
-                {"detail": "Gemini API key is not configured."},
+                {"detail": "AI service configuration is missing."},
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
 
-        # Step 5: Send conversation history to Gemini
         try:
             client = genai.Client(
                 api_key=api_key,
-                http_options={"timeout": 30000},
+                http_options={"timeout": 20000},
             )
 
+            # Keep recent history short to reduce token usage and latency.
             conversation_history = list(
                 conversation.messages.order_by(
-                    "created_at", "id"
-                )[:20]
+                    "-created_at", "-id"
+                )[:MAX_HISTORY_MESSAGES]
             )
+            conversation_history.reverse()
 
             response = generate_gemini_response(
                 client,
@@ -144,29 +168,28 @@ class AIChatView(APIView):
                 message,
             )
 
-            if not response.text:
+            if response is None or not response.text:
                 return Response(
-                    {"detail": "Gemini returned an empty response."},
+                    {"detail": "The AI service returned an empty response. Please try again."},
                     status=status.HTTP_502_BAD_GATEWAY,
                 )
 
-            # Step 6: Save both messages
-            ChatMessage.objects.create(
-                conversation=conversation,
-                role=ChatMessage.Role.USER,
-                content=message,
-            )
+            # Save both messages together to avoid partial database writes.
+            with transaction.atomic():
+                ChatMessage.objects.create(
+                    conversation=conversation,
+                    role=ChatMessage.Role.USER,
+                    content=message,
+                )
 
-            ChatMessage.objects.create(
-                conversation=conversation,
-                role=ChatMessage.Role.ASSISTANT,
-                content=response.text,
-            )
+                ChatMessage.objects.create(
+                    conversation=conversation,
+                    role=ChatMessage.Role.ASSISTANT,
+                    content=response.text,
+                )
 
-            # Update conversation timestamp
-            conversation.save()
+                conversation.save()
 
-            # Step 7: Return response
             return Response(
                 {
                     "conversation_id": conversation.id,
@@ -176,40 +199,44 @@ class AIChatView(APIView):
             )
 
         except TimeoutException:
+            logger.warning("Gemini request timed out.")
             return Response(
-                {
-                    "detail": (
-                        "The AI service timed out. "
-                        "Please try again later."
-                    )
-                },
+                {"detail": "The AI service took too long to respond. Please try again."},
                 status=status.HTTP_504_GATEWAY_TIMEOUT,
             )
 
         except errors.APIError as exc:
-            print("Gemini API error:", repr(exc))
+            logger.exception("Gemini API request failed: %r", exc)
+
+            error_code = getattr(exc, "code", None)
+
+            if error_code == 429:
+                detail = "AI usage limit reached. Please wait and try again."
+                response_status = status.HTTP_429_TOO_MANY_REQUESTS
+            else:
+                detail = "AI service is temporarily unavailable. Please try again shortly."
+                response_status = status.HTTP_503_SERVICE_UNAVAILABLE
 
             return Response(
-                {
-                    "detail": (
-                        "The AI service is temporarily unavailable. "
-                        "Please try again later."
-                    )
-                },
-                status=status.HTTP_502_BAD_GATEWAY,
+                {"detail": detail},
+                status=response_status,
             )
 
 
-class ChatConversationListCreateView(
-    generics.ListCreateAPIView
-):
+class ChatConversationListCreateView(generics.ListCreateAPIView):
     serializer_class = ChatConversationSerializer
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        return ChatConversation.objects.filter(
-            user=self.request.user
-        )
+        return ChatConversation.objects.filter(user=self.request.user)
 
     def perform_create(self, serializer):
         serializer.save(user=self.request.user)
+
+class ChatConversationDetailView(generics.RetrieveUpdateDestroyAPIView):
+    serializer_class = ChatConversationSerializer
+    permission_classes = [IsAuthenticated]
+    lookup_field = "pk"
+
+    def get_queryset(self):
+        return ChatConversation.objects.filter(user=self.request.user)
