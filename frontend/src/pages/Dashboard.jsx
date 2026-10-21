@@ -1,14 +1,5 @@
-
-import { useEffect, useState } from 'react'
-import {
-  getTasks,
-  createTask,
-  updateTask,
-  deleteTask,
-  getUsers,
-  assignUserRole,
-  getTeamReports,
-} from '../api/client.js'
+﻿import { useEffect, useState } from 'react'
+import {getTasks,createTask,updateTask,deleteTask,getUsers,getAssignableUsers,assignUserRole,getTeamReports,} from '../api/client.js'
 import AIAssistant from './AIAssistant.jsx'
 import Profile from './Profile'
 
@@ -21,9 +12,11 @@ function Dashboard({ user, accessToken, onLogout, onProfileUpdated }) {
   const [updatingRoleId, setUpdatingRoleId] = useState(null)
   const [roleUpdateError, setRoleUpdateError] = useState('')
   const [roleUpdateSuccess, setRoleUpdateSuccess] = useState('')
+
   const [teamReportData, setTeamReportData] = useState(null)
   const [loadingReports, setLoadingReports] = useState(false)
   const [reportsError, setReportsError] = useState('')
+  const [reportRefresh, setReportRefresh] = useState(0)
 
   const [searchText, setSearchText] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
@@ -37,6 +30,11 @@ function Dashboard({ user, accessToken, onLogout, onProfileUpdated }) {
   const [taskDescription, setTaskDescription] = useState('')
   const [taskPriority, setTaskPriority] = useState('medium')
   const [savingTask, setSavingTask] = useState(false)
+
+  const [assignableUsers, setAssignableUsers] = useState([])
+  const [assignedTo, setAssignedTo] = useState('')
+  const [loadingAssignableUsers, setLoadingAssignableUsers] =
+    useState(false)
 
   const [editingTaskId, setEditingTaskId] = useState(null)
   const [editTitle, setEditTitle] = useState('')
@@ -53,6 +51,7 @@ function Dashboard({ user, accessToken, onLogout, onProfileUpdated }) {
     'User'
 
   const role = user?.role?.trim()?.toLowerCase()
+  const canManageTasks = ['admin', 'manager'].includes(role)
 
   const allMenuItems = [
     {
@@ -64,6 +63,11 @@ function Dashboard({ user, accessToken, onLogout, onProfileUpdated }) {
       name: 'My Tasks',
       icon: '✓',
       roles: ['admin', 'manager', 'employee'],
+    },
+    {
+      name: 'Create Task',
+      icon: '+',
+      roles: ['admin', 'manager'],
     },
     {
       name: 'Team Reports',
@@ -78,7 +82,7 @@ function Dashboard({ user, accessToken, onLogout, onProfileUpdated }) {
     {
       name: 'Team Members',
       icon: '♙',
-      roles: ['admin'],
+      roles: ['admin', 'manager'],
     },
     {
       name: 'Settings',
@@ -91,7 +95,7 @@ function Dashboard({ user, accessToken, onLogout, onProfileUpdated }) {
     item.roles.includes(role),
   )
 
-  // Load tasks.
+  // Load tasks assigned to the current user.
   useEffect(() => {
     let cancelled = false
 
@@ -125,16 +129,13 @@ function Dashboard({ user, accessToken, onLogout, onProfileUpdated }) {
 
   // Load Team Reports.
   useEffect(() => {
-    if (
-      activeMenu !== 'Team Reports' ||
-      !['admin', 'manager'].includes(role)
-    ) {
+    if (activeMenu !== 'Team Reports' || !canManageTasks) {
       return
     }
 
     let cancelled = false
 
-    async function loadTeamReports() {
+    async function loadReports() {
       try {
         setLoadingReports(true)
         setReportsError('')
@@ -157,16 +158,57 @@ function Dashboard({ user, accessToken, onLogout, onProfileUpdated }) {
       }
     }
 
-    loadTeamReports()
+    loadReports()
 
     return () => {
       cancelled = true
     }
-  }, [activeMenu, accessToken, role])
+  }, [activeMenu, accessToken, canManageTasks, reportRefresh])
 
-  // Load team members for Admin.
+  // Load employees available for task assignment.
   useEffect(() => {
-    if (activeMenu !== 'Team Members' || role !== 'admin') {
+    if (!canManageTasks) {
+      setAssignableUsers([])
+      return
+    }
+
+    let cancelled = false
+
+    async function loadAssignableUsers() {
+      try {
+        setLoadingAssignableUsers(true)
+
+        const data = await getAssignableUsers(accessToken)
+
+        if (!cancelled) {
+          setAssignableUsers(Array.isArray(data) ? data : [])
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setTaskError(
+            error.message || 'Unable to load assignable employees.',
+          )
+        }
+      } finally {
+        if (!cancelled) {
+          setLoadingAssignableUsers(false)
+        }
+      }
+    }
+
+    loadAssignableUsers()
+
+    return () => {
+      cancelled = true
+    }
+  }, [accessToken, canManageTasks])
+
+  // Load Team Members for Admin.
+  useEffect(() => {
+    if (
+      activeMenu !== 'Team Members' ||
+      !['admin', 'manager'].includes(role)
+    ) {
       return
     }
 
@@ -235,25 +277,48 @@ function Dashboard({ user, accessToken, onLogout, onProfileUpdated }) {
   async function handleCreateTask(event) {
     event.preventDefault()
     setTaskError('')
+
+    if (!canManageTasks) {
+      setTaskError('You do not have permission to create tasks.')
+      return
+    }
+
+    if (!taskTitle.trim()) {
+      setTaskError('Please enter a task title.')
+      return
+    }
+
+    if (!assignedTo) {
+      setTaskError('Please select an employee to assign this task.')
+      return
+    }
+
     setSavingTask(true)
 
     try {
       const newTask = await createTask(accessToken, {
-        title: taskTitle,
-        description: taskDescription,
+        title: taskTitle.trim(),
+        description: taskDescription.trim(),
         priority: taskPriority,
         status: 'pending',
+        assigned_to: Number(assignedTo),
       })
 
-      setTasks((previousTasks) => [newTask, ...previousTasks])
+      // The task list is for the current user's assigned tasks.
+      if (Number(newTask.assigned_to) === Number(user?.id)) {
+        setTasks((previousTasks) => [newTask, ...previousTasks])
+      }
+
       setTaskTitle('')
       setTaskDescription('')
       setTaskPriority('medium')
+      setAssignedTo('')
       setShowTaskForm(false)
+      setActiveMenu('Dashboard')
 
-      if (activeMenu === 'Team Reports') {
-        setTeamReportData(null)
-      }
+      // Refresh Team Reports when new tasks are created.
+      setTeamReportData(null)
+      setReportRefresh((current) => current + 1)
     } catch (error) {
       setTaskError(error.message || 'Unable to create task.')
     } finally {
@@ -263,27 +328,35 @@ function Dashboard({ user, accessToken, onLogout, onProfileUpdated }) {
 
   // Start editing a task.
   function startEditingTask(task) {
+    if (!canManageTasks) return
+
     setEditingTaskId(task.id)
-    setEditTitle(task.title)
+    setEditTitle(task.title || '')
     setEditPriority(task.priority || 'medium')
     setTaskError('')
   }
 
-  // Update a task.
+  // Update a task's title and priority.
   async function handleUpdateTask(event, taskId) {
     event.preventDefault()
+
+    if (!canManageTasks) {
+      setTaskError('You do not have permission to edit tasks.')
+      return
+    }
+
     setTaskError('')
     setUpdatingTask(true)
 
     try {
       const updatedTask = await updateTask(accessToken, taskId, {
-        title: editTitle,
+        title: editTitle.trim(),
         priority: editPriority,
       })
 
       setTasks((previousTasks) =>
         previousTasks.map((task) =>
-          task.id === taskId ? updatedTask : task,
+          task.id === taskId ? { ...task, ...updatedTask } : task,
         ),
       )
 
@@ -297,7 +370,7 @@ function Dashboard({ user, accessToken, onLogout, onProfileUpdated }) {
     }
   }
 
-  // Update task status.
+  // Update a task's status.
   async function handleStatusChange(taskId, newStatus) {
     setTaskError('')
     setStatusUpdatingTaskId(taskId)
@@ -309,9 +382,12 @@ function Dashboard({ user, accessToken, onLogout, onProfileUpdated }) {
 
       setTasks((previousTasks) =>
         previousTasks.map((task) =>
-          task.id === taskId ? updatedTask : task,
+          task.id === taskId ? { ...task, ...updatedTask } : task,
         ),
       )
+
+      setTeamReportData(null)
+      setReportRefresh((current) => current + 1)
     } catch (error) {
       setTaskError(
         error.message || 'Unable to update task status.',
@@ -323,6 +399,11 @@ function Dashboard({ user, accessToken, onLogout, onProfileUpdated }) {
 
   // Delete a task.
   async function handleDeleteTask(taskId) {
+    if (!canManageTasks) {
+      setTaskError('You do not have permission to delete tasks.')
+      return
+    }
+
     const confirmed = window.confirm(
       'Are you sure you want to delete this task?',
     )
@@ -342,6 +423,9 @@ function Dashboard({ user, accessToken, onLogout, onProfileUpdated }) {
       if (editingTaskId === taskId) {
         setEditingTaskId(null)
       }
+
+      setTeamReportData(null)
+      setReportRefresh((current) => current + 1)
     } catch (error) {
       setTaskError(error.message || 'Unable to delete task.')
     } finally {
@@ -414,8 +498,11 @@ function Dashboard({ user, accessToken, onLogout, onProfileUpdated }) {
     )
   }
 
-  // Team Members page — Admin only.
-  if (activeMenu === 'Team Members' && role === 'admin') {
+  // Team Members page — Admin and manager.
+  if (
+    activeMenu === 'Team Members' &&
+    ['admin', 'manager'].includes(role)
+  ) {
     return (
       <div className="container-fluid p-4">
         <div className="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-3">
@@ -489,26 +576,27 @@ function Dashboard({ user, accessToken, onLogout, onProfileUpdated }) {
                         </td>
                         <td>{member.email || '—'}</td>
                         <td>
-                          <select
-                            className="form-select form-select-sm"
-                            aria-label={`Role for ${member.username}`}
-                            value={member.role || ''}
-                            disabled={updatingRoleId === member.id}
-                            onChange={(event) =>
-                              handleRoleChange(
-                                member.id,
-                                event.target.value,
-                              )
-                            }
-                          >
-                            <option value="" disabled>
-                              Select role
-                            </option>
-                            <option value="Admin">Admin</option>
-                            <option value="Manager">Manager</option>
-                            <option value="Employee">Employee</option>
-                          </select>
-
+                          {role === 'admin' && (
+                            <select
+                              className="form-select form-select-sm"
+                              aria-label={`Role for ${member.username}`}
+                              value={member.role || ''}
+                              disabled={updatingRoleId === member.id}
+                              onChange={(event) =>
+                                handleRoleChange(
+                                  member.id,
+                                  event.target.value,
+                                )
+                              }
+                            >
+                              <option value="" disabled>
+                                Select role
+                              </option>
+                              <option value="Admin">Admin</option>
+                              <option value="Manager">Manager</option>
+                              <option value="Employee">Employee</option>
+                            </select>
+                          )}
                           {updatingRoleId === member.id && (
                             <small className="text-secondary">
                               Updating...
@@ -541,7 +629,7 @@ function Dashboard({ user, accessToken, onLogout, onProfileUpdated }) {
   // Team Reports page — Admin and Manager only.
   if (
     activeMenu === 'Team Reports' &&
-    (role === 'admin' || role === 'manager')
+    canManageTasks
   ) {
     const totalTasks = teamReportData?.total_tasks ?? 0
     const completedCount = teamReportData?.completed_tasks ?? 0
@@ -550,11 +638,7 @@ function Dashboard({ user, accessToken, onLogout, onProfileUpdated }) {
     const highPriorityCount = teamReportData?.high_priority_tasks ?? 0
 
     const reportCards = [
-      {
-        title: 'Total Tasks',
-        count: totalTasks,
-        color: 'primary',
-      },
+      { title: 'Total Tasks', count: totalTasks, color: 'primary' },
       {
         title: 'Completed Tasks',
         count: completedCount,
@@ -577,7 +661,9 @@ function Dashboard({ user, accessToken, onLogout, onProfileUpdated }) {
       },
     ]
 
-    const memberReports = Array.isArray(teamReportData?.member_reports)
+    const memberReports = Array.isArray(
+      teamReportData?.member_reports,
+    )
       ? teamReportData.member_reports
       : []
 
@@ -591,13 +677,26 @@ function Dashboard({ user, accessToken, onLogout, onProfileUpdated }) {
             </p>
           </div>
 
-          <button
-            type="button"
-            className="btn btn-outline-secondary"
-            onClick={() => setActiveMenu('Dashboard')}
-          >
-            Back to Dashboard
-          </button>
+          <div className="d-flex gap-2">
+            <button
+              type="button"
+              className="btn btn-outline-primary"
+              onClick={() => {
+                setTeamReportData(null)
+                setReportRefresh((current) => current + 1)
+              }}
+            >
+              Refresh Reports
+            </button>
+
+            <button
+              type="button"
+              className="btn btn-outline-secondary"
+              onClick={() => setActiveMenu('Dashboard')}
+            >
+              Back to Dashboard
+            </button>
+          </div>
         </div>
 
         {loadingReports && (
@@ -610,11 +709,9 @@ function Dashboard({ user, accessToken, onLogout, onProfileUpdated }) {
             <button
               type="button"
               className="btn btn-sm btn-outline-danger ms-3"
-              onClick={() => {
-                setTeamReportData(null)
-                setActiveMenu('Dashboard')
-                setTimeout(() => setActiveMenu('Team Reports'), 0)
-              }}
+              onClick={() =>
+                setReportRefresh((current) => current + 1)
+              }
             >
               Try Again
             </button>
@@ -623,7 +720,6 @@ function Dashboard({ user, accessToken, onLogout, onProfileUpdated }) {
 
         {!loadingReports && !reportsError && teamReportData && (
           <>
-            {/* Summary cards */}
             <div className="row g-4 mb-4">
               {reportCards.map((card) => (
                 <div
@@ -644,7 +740,6 @@ function Dashboard({ user, accessToken, onLogout, onProfileUpdated }) {
               ))}
             </div>
 
-            {/* Task Status Summary */}
             <div className="card border-0 shadow-sm">
               <div className="card-body p-4">
                 <h5 className="fw-bold mb-4">
@@ -707,7 +802,6 @@ function Dashboard({ user, accessToken, onLogout, onProfileUpdated }) {
               </div>
             </div>
 
-            {/* Team Member Breakdown */}
             <div className="card border-0 shadow-sm mt-4">
               <div className="card-body p-4">
                 <div className="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-4">
@@ -749,8 +843,11 @@ function Dashboard({ user, accessToken, onLogout, onProfileUpdated }) {
                                   member.last_name,
                                 ]
                                   .filter(Boolean)
-                                  .join(' ') || member.username || '—'}
+                                  .join(' ') ||
+                                  member.username ||
+                                  '—'}
                               </div>
+
                               {member.username && (
                                 <small className="text-secondary">
                                   @{member.username}
@@ -759,25 +856,21 @@ function Dashboard({ user, accessToken, onLogout, onProfileUpdated }) {
                             </td>
 
                             <td>{member.email || '—'}</td>
-
                             <td>
                               <span className="badge text-bg-primary">
                                 {member.total_tasks ?? 0}
                               </span>
                             </td>
-
                             <td>
                               <span className="badge text-bg-success">
                                 {member.completed_tasks ?? 0}
                               </span>
                             </td>
-
                             <td>
                               <span className="badge text-bg-secondary">
                                 {member.pending_tasks ?? 0}
                               </span>
                             </td>
-
                             <td>
                               <span className="badge text-bg-info">
                                 {member.in_progress_tasks ?? 0}
@@ -795,7 +888,7 @@ function Dashboard({ user, accessToken, onLogout, onProfileUpdated }) {
                     </h6>
                     <p className="text-secondary mb-0">
                       Member task statistics will appear here when
-                      the report API returns member data.
+                      tasks are assigned to team members.
                     </p>
                   </div>
                 )}
@@ -807,7 +900,7 @@ function Dashboard({ user, accessToken, onLogout, onProfileUpdated }) {
     )
   }
 
-  // Profile / Settings page.
+  // Settings / Profile page.
   if (activeMenu === 'Settings') {
     return (
       <Profile
@@ -850,6 +943,8 @@ function Dashboard({ user, accessToken, onLogout, onProfileUpdated }) {
                   setShowAIAssistant(true)
                 } else {
                   setActiveMenu(item.name)
+                  setTaskError('')
+                  setShowTaskForm(false)
                 }
               }}
               className="btn text-start d-flex align-items-center gap-3 p-3"
@@ -885,8 +980,9 @@ function Dashboard({ user, accessToken, onLogout, onProfileUpdated }) {
         </div>
       </aside>
 
-      {/* Main dashboard */}
+      {/* Main content */}
       <main className="flex-grow-1 p-4">
+        {/* Header */}
         <div className="d-flex justify-content-end align-items-center gap-3">
           <div className="text-end">
             <div className="fw-semibold">{displayName}</div>
@@ -904,152 +1000,248 @@ function Dashboard({ user, accessToken, onLogout, onProfileUpdated }) {
           </button>
         </div>
 
-        <div className="mt-5">
-          <p className="text-primary fw-semibold mb-1">
-            WELCOME BACK
-          </p>
-          <h1 className="fw-bold">Hello, {displayName}! 👋</h1>
-          <p className="text-secondary">
-            Here’s what’s happening with your work today.
-          </p>
-        </div>
-
-        {/* Summary cards */}
-        <div className="row g-3 mt-3">
-          <div className="col-12 col-md-6 col-xl-3">
-            <div className="card h-100 border-0 shadow-sm">
-              <div className="card-body p-4">
-                <p className="text-primary fw-semibold">MY TASKS</p>
-                <h2 className="fw-bold">{tasks.length}</h2>
-                <p className="text-secondary mb-0">
-                  Tasks assigned to you
-                </p>
-              </div>
-            </div>
-          </div>
-
-          <div className="col-12 col-md-6 col-xl-3">
-            <div className="card h-100 border-0 shadow-sm">
-              <div className="card-body p-4">
-                <p className="text-success fw-semibold">
-                  TEAM MEMBERS
-                </p>
-                <h2 className="fw-bold">{teamMembers.length}</h2>
-                <p className="text-secondary mb-0">
-                  Members in your team
-                </p>
-              </div>
-            </div>
-          </div>
-
-          <div className="col-12 col-md-6 col-xl-3">
-            <div className="card h-100 border-0 shadow-sm">
-              <div className="card-body p-4">
-                <p className="fw-semibold" style={{ color: '#7952f6' }}>
-                  PROJECT PROGRESS
-                </p>
-                <h2 className="fw-bold">{progress}%</h2>
-                <p className="text-secondary mb-0">
-                  Tasks completed
-                </p>
-              </div>
-            </div>
-          </div>
-
-          <div className="col-12 col-md-6 col-xl-3">
-            <div className="card h-100 border-0 shadow-sm">
-              <div className="card-body p-4">
-                <p className="fw-semibold" style={{ color: '#d97706' }}>
-                  AI ASSISTANT
-                </p>
-                <h2 className="fw-bold">Ready</h2>
-                <p className="text-secondary mb-0">
-                  Your AI workspace
-                </p>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Quick Access */}
-        <div className="mt-4">
-          <h4 className="fw-bold mb-3">Quick Access</h4>
-          <p className="text-secondary">
-            Shortcuts to your workspace tools.
-          </p>
-
-          <div className="row g-3 mt-2">
-            <div className="col-12 col-md-4">
-              <div className="card border-0 shadow-sm h-100">
-                <div className="card-body p-4">
-                  <div className="fs-2 text-primary">＋</div>
-                  <h5 className="fw-bold mt-2">Create Task</h5>
-                  <p className="text-secondary">
-                    Create and organize your work.
-                  </p>
-                  <button
-                    type="button"
-                    className="btn btn-primary"
-                    onClick={() => setShowTaskForm(true)}
-                  >
-                    + Create Task
-                  </button>
-                </div>
-              </div>
+        {/* Dashboard overview */}
+        {activeMenu === 'Dashboard' && (
+          <>
+            <div className="mt-5">
+              <p className="text-primary fw-semibold mb-1">
+                WELCOME BACK
+              </p>
+              <h1 className="fw-bold">Hello, {displayName}! 👋</h1>
+              <p className="text-secondary">
+                Here’s what’s happening with your work today.
+              </p>
             </div>
 
-            <div className="col-12 col-md-4">
-              <div className="card border-0 shadow-sm h-100">
-                <div className="card-body p-4">
-                  <div className="fs-2 text-success">▤</div>
-                  <h5 className="fw-bold mt-2">View Reports</h5>
-                  <p className="text-secondary mb-2">
-                    Review team progress and reports.
-                  </p>
-                  {['admin', 'manager'].includes(role) && (
-                    <button
-                      type="button"
-                      className="btn btn-outline-success"
-                      onClick={() => setActiveMenu('Team Reports')}
-                    >
-                      Open Team Reports
-                    </button>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            <div className="col-12 col-md-4">
-              <div className="card border-0 shadow-sm h-100">
-                <div className="card-body p-4">
-                  <div
-                    className="fs-2"
-                    style={{ color: '#7952f6' }}
-                  >
-                    ✧
+            {/* Summary cards */}
+            <div className="row g-3 mt-3">
+              <div className="col-12 col-md-6 col-xl-3">
+                <div className="card h-100 border-0 shadow-sm">
+                  <div className="card-body p-4">
+                    <p className="text-primary fw-semibold">MY TASKS</p>
+                    <h2 className="fw-bold">{tasks.length}</h2>
+                    <p className="text-secondary mb-0">
+                      Tasks assigned to you
+                    </p>
                   </div>
-                  <h5 className="fw-bold mt-2">AI Assistant</h5>
-                  <p className="text-secondary mb-0">
-                    Get help with your work.
-                  </p>
-                  <button
-                    type="button"
-                    className="btn btn-outline-primary mt-2"
-                    onClick={() => setShowAIAssistant(true)}
-                  >
-                    Open AI Assistant
-                  </button>
+                </div>
+              </div>
+
+              <div className="col-12 col-md-6 col-xl-3">
+                <div className="card h-100 border-0 shadow-sm">
+                  <div className="card-body p-4">
+                    <p className="text-success fw-semibold">
+                      TEAM MEMBERS
+                    </p>
+                    <h2 className="fw-bold">
+                      {teamMembers.length}
+                    </h2>
+                    <p className="text-secondary mb-0">
+                      Members loaded in your workspace
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="col-12 col-md-6 col-xl-3">
+                <div className="card h-100 border-0 shadow-sm">
+                  <div className="card-body p-4">
+                    <p
+                      className="fw-semibold"
+                      style={{ color: '#7952f6' }}
+                    >
+                      MY PROGRESS
+                    </p>
+                    <h2 className="fw-bold">{progress}%</h2>
+                    <p className="text-secondary mb-0">
+                      Your tasks completed
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="col-12 col-md-6 col-xl-3">
+                <div className="card h-100 border-0 shadow-sm">
+                  <div className="card-body p-4">
+                    <p
+                      className="fw-semibold"
+                      style={{ color: '#d97706' }}
+                    >
+                      AI ASSISTANT
+                    </p>
+                    <h2 className="fw-bold">Ready</h2>
+                    <p className="text-secondary mb-0">
+                      Your AI workspace
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Quick Access */}
+            <div className="mt-4">
+              <h4 className="fw-bold mb-3">Quick Access</h4>
+              <p className="text-secondary">
+                Shortcuts to your workspace tools.
+              </p>
+
+              <div className="row g-3 mt-2">
+                {canManageTasks && (
+                  <div className="col-12 col-md-4">
+                    <div className="card border-0 shadow-sm h-100">
+                      <div className="card-body p-4">
+                        <div className="fs-2 text-primary">＋</div>
+                        <h5 className="fw-bold mt-2">Create Task</h5>
+                        <p className="text-secondary">
+                          Create and assign work to an employee.
+                        </p>
+                        <button
+                          type="button"
+                          className="btn btn-primary"
+                          onClick={() => {
+                            setTaskError('')
+                            setShowTaskForm(true)
+                            setActiveMenu('Create Task')
+                          }}
+                        >
+                          + Create Task
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                <div className="col-12 col-md-4">
+                  <div className="card border-0 shadow-sm h-100">
+                    <div className="card-body p-4">
+                      <div className="fs-2 text-success">✓</div>
+                      <h5 className="fw-bold mt-2">My Tasks</h5>
+                      <p className="text-secondary">
+                        View and update your assigned tasks.
+                      </p>
+                      <button
+                        type="button"
+                        className="btn btn-outline-success"
+                        onClick={() => setActiveMenu('My Tasks')}
+                      >
+                        Open My Tasks
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {canManageTasks && (
+                  <div className="col-12 col-md-4">
+                    <div className="card border-0 shadow-sm h-100">
+                      <div className="card-body p-4">
+                        <div className="fs-2 text-info">▤</div>
+                        <h5 className="fw-bold mt-2">Team Reports</h5>
+                        <p className="text-secondary">
+                          Review employee task progress.
+                        </p>
+                        <button
+                          type="button"
+                          className="btn btn-outline-info"
+                          onClick={() => setActiveMenu('Team Reports')}
+                        >
+                          Open Team Reports
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                <div className="col-12 col-md-4">
+                  <div className="card border-0 shadow-sm h-100">
+                    <div className="card-body p-4">
+                      <div
+                        className="fs-2"
+                        style={{ color: '#7952f6' }}
+                      >
+                        ✧
+                      </div>
+                      <h5 className="fw-bold mt-2">AI Assistant</h5>
+                      <p className="text-secondary">
+                        Get help with your work.
+                      </p>
+                      <button
+                        type="button"
+                        className="btn btn-outline-primary"
+                        onClick={() => setShowAIAssistant(true)}
+                      >
+                        Open AI Assistant
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </>
+        )}
+
+        {/* My Tasks page */}
+        {activeMenu === 'My Tasks' && (
+          <div className="mt-5">
+            <h1 className="fw-bold">My Tasks</h1>
+            <p className="text-secondary">
+              View and update tasks assigned to you.
+            </p>
+
+            <div className="row g-3 mt-2">
+              <div className="col-12 col-md-4">
+                <div className="card border-0 shadow-sm">
+                  <div className="card-body p-3">
+                    <p className="text-secondary mb-1">Total Tasks</p>
+                    <h3 className="fw-bold mb-0">{tasks.length}</h3>
+                  </div>
+                </div>
+              </div>
+
+              <div className="col-12 col-md-4">
+                <div className="card border-0 shadow-sm">
+                  <div className="card-body p-3">
+                    <p className="text-secondary mb-1">In Progress</p>
+                    <h3 className="fw-bold mb-0">
+                      {
+                        tasks.filter(
+                          (task) => task.status === 'in_progress',
+                        ).length
+                      }
+                    </h3>
+                  </div>
+                </div>
+              </div>
+
+              <div className="col-12 col-md-4">
+                <div className="card border-0 shadow-sm">
+                  <div className="card-body p-3">
+                    <p className="text-secondary mb-1">Completed</p>
+                    <h3 className="fw-bold mb-0">
+                      {completedTasks}
+                    </h3>
+                  </div>
                 </div>
               </div>
             </div>
           </div>
-        </div>
+        )}
 
-        {/* Create task form */}
-        {showTaskForm && (
+        {/* Create task form: Admin and Manager only */}
+        {activeMenu === 'Create Task' && canManageTasks && (
           <div className="card border-0 shadow-sm mt-4">
             <div className="card-body p-4">
-              <h4 className="fw-bold mb-3">Create New Task</h4>
+              <div className="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+                <h4 className="fw-bold mb-0">Create New Task</h4>
+                <span className="badge text-bg-primary">
+                  Admin / Manager
+                </span>
+              </div>
+
+              {taskError && (
+                <div className="alert alert-danger" role="alert">
+                  {taskError}
+                </div>
+              )}
 
               <form onSubmit={handleCreateTask}>
                 <div className="mb-3">
@@ -1106,10 +1298,49 @@ function Dashboard({ user, accessToken, onLogout, onProfileUpdated }) {
                   </select>
                 </div>
 
+                <div className="mb-3">
+                  <label htmlFor="assignedTo" className="form-label">
+                    Assign to Employee
+                  </label>
+
+                  <select
+                    id="assignedTo"
+                    className="form-select"
+                    value={assignedTo}
+                    onChange={(event) =>
+                      setAssignedTo(event.target.value)
+                    }
+                    required
+                    disabled={loadingAssignableUsers || savingTask}
+                  >
+                    <option value="">
+                      {loadingAssignableUsers
+                        ? 'Loading employees...'
+                        : 'Select an employee'}
+                    </option>
+
+                    {assignableUsers.map((employee) => (
+                      <option key={employee.id} value={employee.id}>
+                        {employee.first_name || employee.last_name
+                          ? `${employee.first_name || ''} ${employee.last_name || ''}`.trim()
+                          : employee.username}{' '}
+                        ({employee.username})
+                      </option>
+                    ))}
+                  </select>
+
+                  {!loadingAssignableUsers &&
+                    assignableUsers.length === 0 && (
+                      <small className="text-danger">
+                        No active employees available for assignment.
+                      </small>
+                    )}
+                </div>
+
                 <button
                   type="submit"
                   className="btn btn-primary me-2"
-                  disabled={savingTask}
+                  disabled={savingTask || loadingAssignableUsers}
                 >
                   {savingTask ? 'Saving...' : 'Save Task'}
                 </button>
@@ -1117,7 +1348,11 @@ function Dashboard({ user, accessToken, onLogout, onProfileUpdated }) {
                 <button
                   type="button"
                   className="btn btn-outline-secondary"
-                  onClick={() => setShowTaskForm(false)}
+                  onClick={() => {
+                    setShowTaskForm(false)
+                    setTaskError('')
+                    setActiveMenu('Dashboard')
+                  }}
                   disabled={savingTask}
                 >
                   Cancel
@@ -1127,303 +1362,319 @@ function Dashboard({ user, accessToken, onLogout, onProfileUpdated }) {
           </div>
         )}
 
-        {/* My Tasks */}
-        <div className="card border-0 shadow-sm mt-4">
-          <div className="card-body p-4">
-            <div className="d-flex justify-content-between align-items-center flex-wrap gap-2">
-              <div>
-                <h4 className="fw-bold">My Tasks</h4>
-                <p className="text-secondary mb-0">
-                  Track your work and progress.
+        {/* My Tasks list: only shown in My Tasks */}
+        {activeMenu === 'My Tasks' && (
+          <div className="card border-0 shadow-sm mt-4">
+            <div className="card-body p-4">
+              <div className="d-flex justify-content-between align-items-center flex-wrap gap-2">
+                <div>
+                  <h4 className="fw-bold">Your Assigned Tasks</h4>
+                  <p className="text-secondary mb-0">
+                    Track your work and update task status.
+                  </p>
+                </div>
+
+                {canManageTasks && (
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    onClick={() => {
+                      setTaskError('')
+                      setShowTaskForm(true)
+                    }}
+                  >
+                    + Add Task
+                  </button>
+                )}
+              </div>
+
+              {/* Search, filters and sorting */}
+              <div className="row g-3 mt-3">
+                <div className="col-12 col-lg-3">
+                  <label htmlFor="task-search" className="form-label">
+                    Search Tasks
+                  </label>
+                  <input
+                    id="task-search"
+                    type="search"
+                    className="form-control"
+                    placeholder="Search by task title..."
+                    value={searchText}
+                    onChange={(event) =>
+                      setSearchText(event.target.value)
+                    }
+                  />
+                </div>
+
+                <div className="col-12 col-md-6 col-lg-3">
+                  <label
+                    htmlFor="task-status-filter"
+                    className="form-label"
+                  >
+                    Filter by Status
+                  </label>
+                  <select
+                    id="task-status-filter"
+                    className="form-select"
+                    value={statusFilter}
+                    onChange={(event) =>
+                      setStatusFilter(event.target.value)
+                    }
+                  >
+                    <option value="all">All Statuses</option>
+                    <option value="pending">Pending</option>
+                    <option value="in_progress">In Progress</option>
+                    <option value="completed">Completed</option>
+                  </select>
+                </div>
+
+                <div className="col-12 col-md-6 col-lg-3">
+                  <label
+                    htmlFor="task-priority-filter"
+                    className="form-label"
+                  >
+                    Filter by Priority
+                  </label>
+                  <select
+                    id="task-priority-filter"
+                    className="form-select"
+                    value={priorityFilter}
+                    onChange={(event) =>
+                      setPriorityFilter(event.target.value)
+                    }
+                  >
+                    <option value="all">All Priorities</option>
+                    <option value="low">Low</option>
+                    <option value="medium">Medium</option>
+                    <option value="high">High</option>
+                  </select>
+                </div>
+
+                <div className="col-12 col-md-6 col-lg-3">
+                  <label htmlFor="task-sort" className="form-label">
+                    Sort Tasks
+                  </label>
+                  <select
+                    id="task-sort"
+                    className="form-select"
+                    value={sortBy}
+                    onChange={(event) => setSortBy(event.target.value)}
+                  >
+                    <option value="newest">Newest First</option>
+                    <option value="oldest">Oldest First</option>
+                    <option value="priority">
+                      Priority: High to Low
+                    </option>
+                    <option value="title">Title: A–Z</option>
+                  </select>
+                </div>
+              </div>
+
+              {taskError && (
+                <div className="alert alert-danger mt-3" role="alert">
+                  {taskError}
+                </div>
+              )}
+
+              {loadingTasks ? (
+                <p className="text-secondary mt-4">
+                  Loading tasks...
                 </p>
-              </div>
-
-              <button
-                type="button"
-                className="btn btn-outline-primary"
-                onClick={() => setShowTaskForm(true)}
-              >
-                + Add Task
-              </button>
-            </div>
-
-            {/* Search, filters and sorting */}
-            <div className="row g-3 mt-4">
-              <div className="col-12 col-lg-3">
-                <label htmlFor="task-search" className="form-label">
-                  Search Tasks
-                </label>
-                <input
-                  id="task-search"
-                  type="search"
-                  className="form-control"
-                  placeholder="Search by task title..."
-                  value={searchText}
-                  onChange={(event) =>
-                    setSearchText(event.target.value)
-                  }
-                />
-              </div>
-
-              <div className="col-12 col-md-6 col-lg-3">
-                <label
-                  htmlFor="task-status-filter"
-                  className="form-label"
-                >
-                  Filter by Status
-                </label>
-                <select
-                  id="task-status-filter"
-                  className="form-select"
-                  value={statusFilter}
-                  onChange={(event) =>
-                    setStatusFilter(event.target.value)
-                  }
-                >
-                  <option value="all">All Statuses</option>
-                  <option value="pending">Pending</option>
-                  <option value="in_progress">In Progress</option>
-                  <option value="completed">Completed</option>
-                </select>
-              </div>
-
-              <div className="col-12 col-md-6 col-lg-3">
-                <label
-                  htmlFor="task-priority-filter"
-                  className="form-label"
-                >
-                  Filter by Priority
-                </label>
-                <select
-                  id="task-priority-filter"
-                  className="form-select"
-                  value={priorityFilter}
-                  onChange={(event) =>
-                    setPriorityFilter(event.target.value)
-                  }
-                >
-                  <option value="all">All Priorities</option>
-                  <option value="low">Low</option>
-                  <option value="medium">Medium</option>
-                  <option value="high">High</option>
-                </select>
-              </div>
-
-              <div className="col-12 col-md-6 col-lg-3">
-                <label htmlFor="task-sort" className="form-label">
-                  Sort Tasks
-                </label>
-                <select
-                  id="task-sort"
-                  className="form-select"
-                  value={sortBy}
-                  onChange={(event) => setSortBy(event.target.value)}
-                >
-                  <option value="newest">Newest First</option>
-                  <option value="oldest">Oldest First</option>
-                  <option value="priority">
-                    Priority: High to Low
-                  </option>
-                  <option value="title">Title: A–Z</option>
-                </select>
-              </div>
-            </div>
-
-            {taskError && (
-              <div className="alert alert-danger mt-3" role="alert">
-                {taskError}
-              </div>
-            )}
-
-            {loadingTasks ? (
-              <p className="text-secondary mt-4">Loading tasks...</p>
-            ) : filteredTasks.length === 0 ? (
-              <div className="mt-4 p-4 border rounded-3 text-center">
-                <h6 className="fw-bold">
-                  {tasks.length === 0
-                    ? 'No tasks yet'
-                    : 'No matching tasks'}
-                </h6>
-                <p className="text-secondary mb-0">
-                  {tasks.length === 0
-                    ? 'Create your first task to get started.'
-                    : 'Try changing your search or filters.'}
-                </p>
-              </div>
-            ) : (
-              <div className="row g-3 mt-2">
-                {filteredTasks.map((task) => (
-                  <div className="col-12 col-lg-6" key={task.id}>
-                    <div className="p-3 border rounded-3 h-100">
-                      {editingTaskId === task.id ? (
-                        <form
-                          onSubmit={(event) =>
-                            handleUpdateTask(event, task.id)
-                          }
-                        >
-                          <h6 className="fw-bold mb-3">Edit Task</h6>
-
-                          <div className="mb-3">
-                            <label
-                              htmlFor={`edit-title-${task.id}`}
-                              className="form-label"
-                            >
-                              Task Title
-                            </label>
-                            <input
-                              id={`edit-title-${task.id}`}
-                              className="form-control"
-                              value={editTitle}
-                              onChange={(event) =>
-                                setEditTitle(event.target.value)
-                              }
-                              required
-                            />
-                          </div>
-
-                          <div className="mb-3">
-                            <label
-                              htmlFor={`edit-priority-${task.id}`}
-                              className="form-label"
-                            >
-                              Priority
-                            </label>
-                            <select
-                              id={`edit-priority-${task.id}`}
-                              className="form-select"
-                              value={editPriority}
-                              onChange={(event) =>
-                                setEditPriority(event.target.value)
-                              }
-                            >
-                              <option value="low">Low</option>
-                              <option value="medium">Medium</option>
-                              <option value="high">High</option>
-                            </select>
-                          </div>
-
-                          <button
-                            type="submit"
-                            className="btn btn-primary btn-sm me-2"
-                            disabled={updatingTask}
+              ) : filteredTasks.length === 0 ? (
+                <div className="mt-4 p-4 border rounded-3 text-center">
+                  <h6 className="fw-bold">
+                    {tasks.length === 0
+                      ? 'No tasks assigned to you yet'
+                      : 'No matching tasks'}
+                  </h6>
+                  <p className="text-secondary mb-0">
+                    {tasks.length === 0
+                      ? 'Tasks assigned to your account will appear here.'
+                      : 'Try changing your search or filters.'}
+                  </p>
+                </div>
+              ) : (
+                <div className="row g-3 mt-2">
+                  {filteredTasks.map((task) => (
+                    <div className="col-12 col-lg-6" key={task.id}>
+                      <div className="p-3 border rounded-3 h-100">
+                        {editingTaskId === task.id && canManageTasks ? (
+                          <form
+                            onSubmit={(event) =>
+                              handleUpdateTask(event, task.id)
+                            }
                           >
-                            {updatingTask
-                              ? 'Saving...'
-                              : 'Save Changes'}
-                          </button>
+                            <h6 className="fw-bold mb-3">Edit Task</h6>
 
-                          <button
-                            type="button"
-                            className="btn btn-outline-secondary btn-sm"
-                            onClick={() => setEditingTaskId(null)}
-                            disabled={updatingTask}
-                          >
-                            Cancel
-                          </button>
-                        </form>
-                      ) : (
-                        <>
-                          <h6 className="fw-bold">{task.title}</h6>
-                          <p className="text-secondary mb-3">
-                            {task.description ||
-                              'No description provided.'}
-                          </p>
+                            <div className="mb-3">
+                              <label
+                                htmlFor={`edit-title-${task.id}`}
+                                className="form-label"
+                              >
+                                Task Title
+                              </label>
+                              <input
+                                id={`edit-title-${task.id}`}
+                                className="form-control"
+                                value={editTitle}
+                                onChange={(event) =>
+                                  setEditTitle(event.target.value)
+                                }
+                                required
+                              />
+                            </div>
 
-                          <span
-                            className={`badge ${
-                              task.status === 'completed'
-                                ? 'text-bg-success'
-                                : task.status === 'in_progress'
-                                  ? 'text-bg-primary'
-                                  : 'text-bg-secondary'
-                            }`}
-                          >
-                            {(task.status || 'pending').replace(
-                              '_',
-                              ' ',
-                            )}
-                          </span>
+                            <div className="mb-3">
+                              <label
+                                htmlFor={`edit-priority-${task.id}`}
+                                className="form-label"
+                              >
+                                Priority
+                              </label>
+                              <select
+                                id={`edit-priority-${task.id}`}
+                                className="form-select"
+                                value={editPriority}
+                                onChange={(event) =>
+                                  setEditPriority(event.target.value)
+                                }
+                              >
+                                <option value="low">Low</option>
+                                <option value="medium">Medium</option>
+                                <option value="high">High</option>
+                              </select>
+                            </div>
 
-                          <span
-                            className={`badge ms-2 ${
-                              task.priority === 'high'
-                                ? 'text-bg-danger'
-                                : task.priority === 'medium'
-                                  ? 'text-bg-warning'
-                                  : 'text-bg-success'
-                            }`}
-                          >
-                            {task.priority || 'medium'} priority
-                          </span>
-
-                          <div className="mt-3">
-                            <label
-                              htmlFor={`task-status-${task.id}`}
-                              className="form-label small fw-semibold"
-                            >
-                              Task Status
-                            </label>
-                            <select
-                              id={`task-status-${task.id}`}
-                              className="form-select form-select-sm"
-                              value={task.status || 'pending'}
-                              onChange={(event) =>
-                                handleStatusChange(
-                                  task.id,
-                                  event.target.value,
-                                )
-                              }
-                              disabled={
-                                statusUpdatingTaskId === task.id ||
-                                deletingTaskId === task.id
-                              }
-                            >
-                              <option value="pending">Pending</option>
-                              <option value="in_progress">
-                                In Progress
-                              </option>
-                              <option value="completed">Completed</option>
-                            </select>
-
-                            {statusUpdatingTaskId === task.id && (
-                              <small className="text-secondary">
-                                Updating status...
-                              </small>
-                            )}
-                          </div>
-
-                          <div className="mt-3">
                             <button
-                              type="button"
-                              className="btn btn-outline-primary btn-sm me-2"
-                              onClick={() => startEditingTask(task)}
-                              disabled={deletingTaskId !== null}
+                              type="submit"
+                              className="btn btn-primary btn-sm me-2"
+                              disabled={updatingTask}
                             >
-                              Edit
+                              {updatingTask
+                                ? 'Saving...'
+                                : 'Save Changes'}
                             </button>
 
                             <button
                               type="button"
-                              className="btn btn-outline-danger btn-sm"
-                              onClick={() =>
-                                handleDeleteTask(task.id)
-                              }
-                              disabled={deletingTaskId !== null}
+                              className="btn btn-outline-secondary btn-sm"
+                              onClick={() => setEditingTaskId(null)}
+                              disabled={updatingTask}
                             >
-                              {deletingTaskId === task.id
-                                ? 'Deleting...'
-                                : 'Delete'}
+                              Cancel
                             </button>
-                          </div>
-                        </>
-                      )}
+                          </form>
+                        ) : (
+                          <>
+                            <div className="d-flex justify-content-between align-items-start gap-2">
+                              <h6 className="fw-bold">{task.title}</h6>
+                              <span
+                                className={`badge ${
+                                  task.status === 'completed'
+                                    ? 'text-bg-success'
+                                    : task.status === 'in_progress'
+                                      ? 'text-bg-primary'
+                                      : 'text-bg-secondary'
+                                }`}
+                              >
+                                {(task.status || 'pending').replace(
+                                  '_',
+                                  ' ',
+                                )}
+                              </span>
+                            </div>
+
+                            <p className="text-secondary mb-3">
+                              {task.description ||
+                                'No description provided.'}
+                            </p>
+
+                            <span
+                              className={`badge ${
+                                task.priority === 'high'
+                                  ? 'text-bg-danger'
+                                  : task.priority === 'medium'
+                                    ? 'text-bg-warning'
+                                    : 'text-bg-success'
+                              }`}
+                            >
+                              {task.priority || 'medium'} priority
+                            </span>
+
+                            <div className="mt-3">
+                              <label
+                                htmlFor={`task-status-${task.id}`}
+                                className="form-label small fw-semibold"
+                              >
+                                Update Task Status
+                              </label>
+
+                              <select
+                                id={`task-status-${task.id}`}
+                                className="form-select form-select-sm"
+                                value={task.status || 'pending'}
+                                onChange={(event) =>
+                                  handleStatusChange(
+                                    task.id,
+                                    event.target.value,
+                                  )
+                                }
+                                disabled={
+                                  statusUpdatingTaskId === task.id ||
+                                  deletingTaskId === task.id
+                                }
+                              >
+                                <option value="pending">Pending</option>
+                                <option value="in_progress">
+                                  In Progress
+                                </option>
+                                <option value="completed">
+                                  Completed
+                                </option>
+                              </select>
+
+                              {statusUpdatingTaskId === task.id && (
+                                <small className="text-secondary">
+                                  Updating status...
+                                </small>
+                              )}
+                            </div>
+
+                            {canManageTasks && (
+                              <div className="mt-3">
+                                <button
+                                  type="button"
+                                  className="btn btn-outline-primary btn-sm me-2"
+                                  onClick={() => startEditingTask(task)}
+                                  disabled={deletingTaskId !== null}
+                                >
+                                  Edit
+                                </button>
+
+                                <button
+                                  type="button"
+                                  className="btn btn-outline-danger btn-sm"
+                                  onClick={() =>
+                                    handleDeleteTask(task.id)
+                                  }
+                                  disabled={deletingTaskId !== null}
+                                >
+                                  {deletingTaskId === task.id
+                                    ? 'Deleting...'
+                                    : 'Delete'}
+                                </button>
+                              </div>
+                            )}
+                          </>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                ))}
-              </div>
-            )}
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
-        </div>
+        )}
       </main>
     </div>
   )

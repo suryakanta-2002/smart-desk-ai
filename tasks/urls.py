@@ -6,12 +6,14 @@ from .views import (
     TaskUpdateView,
     TaskDeleteView,
     TeamReportsView,
+    TaskAssignableUsersView,
 )
 
 
 urlpatterns = [
     path('', TaskListCreateView.as_view(), name='task-list-create'),
-    path('<int:pk>/', TaskUpdateView.as_view(), name='task-update'),
-    path('<int:pk>/delete/',TaskDeleteView.as_view(),name='task-delete',),
+    path('assignable-users/', TaskAssignableUsersView.as_view(), name='task-assignable-users'),
     path('team-reports/', TeamReportsView.as_view(), name='team-reports'),
+    path('<int:pk>/', TaskUpdateView.as_view(), name='task-update'),
+    path('<int:pk>/delete/', TaskDeleteView.as_view(), name='task-delete'),
 ]

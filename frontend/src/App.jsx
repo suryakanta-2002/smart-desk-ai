@@ -1,14 +1,22 @@
 
 import { useState } from 'react'
 import ReCAPTCHA from 'react-google-recaptcha'
-import { loginUser, getUserProfile } from './api/client.js'
+import {
+  loginUser,
+  getUserProfile,
+  requestPasswordReset,
+  confirmPasswordReset,
+} from './api/client.js'
 import Dashboard from './pages/Dashboard.jsx'
 
 const API_BASE = 'http://127.0.0.1:8000/api/auth'
 const RECAPTCHA_SITE_KEY = import.meta.env.VITE_RECAPTCHA_SITE_KEY
 
 function App() {
-  const [page, setPage] = useState('login')
+  const [page, setPage] = useState(() => {
+    const params = new URLSearchParams(window.location.search)
+    return params.get('page') === 'reset' ? 'reset' : 'login'
+  })
 
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
@@ -17,7 +25,16 @@ function App() {
   const [email, setEmail] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [captchaToken, setCaptchaToken] = useState(null)
+  const [resetEmail, setResetEmail] = useState('')
+  const [resetPassword, setResetPassword] = useState('')
+  const [resetConfirmPassword, setResetConfirmPassword] = useState('')
 
+  const [resetUid] = useState(
+    () => new URLSearchParams(window.location.search).get('uid') || '',
+  )
+  const [resetToken] = useState(
+    () => new URLSearchParams(window.location.search).get('token') || '',
+  )
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
   const [loading, setLoading] = useState(false)
@@ -56,6 +73,60 @@ function App() {
       setLoading(false)
     }
   }
+  
+async function handlePasswordResetRequest(event) {
+  event.preventDefault()
+  setError('')
+  setSuccess('')
+  setLoading(true)
+
+  try {
+    const data = await requestPasswordReset(resetEmail.trim())
+    setSuccess(data.message)
+  } catch (err) {
+    setError(err.message || 'Unable to request password reset.')
+  } finally {
+    setLoading(false)
+  }
+}
+
+async function handlePasswordReset(event) {
+  event.preventDefault()
+  setError('')
+  setSuccess('')
+
+  if (!resetUid || !resetToken) {
+    setError('Reset link is invalid or missing. Please request a new link.')
+    return
+  }
+
+  if (resetPassword !== resetConfirmPassword) {
+    setError('Passwords do not match.')
+    return
+  }
+
+  setLoading(true)
+
+  try {
+    const data = await confirmPasswordReset(
+      resetUid,
+      resetToken,
+      resetPassword,
+      resetConfirmPassword,
+    )
+
+    window.history.replaceState({}, '', window.location.pathname)
+    setPage('login')
+    setPassword('')
+    setResetPassword('')
+    setResetConfirmPassword('')
+    setSuccess(data.message)
+  } catch (err) {
+    setError(err.message || 'Unable to reset password.')
+  } finally {
+    setLoading(false)
+  }
+}
 
   async function handleRegister(event) {
     event.preventDefault()
@@ -172,7 +243,9 @@ function App() {
                 ? 'Create your workspace account'
                 : page === 'forgot'
                   ? 'Recover your account'
-                  : 'Sign in to your workspace'}
+                  : page === 'reset'
+                    ? 'Create a new password'
+                    : 'Sign in to your workspace'}
             </p>
           </div>
 
@@ -389,22 +462,108 @@ function App() {
               </p>
             </form>
           )}
-
+          
           {page === 'forgot' && (
-            <div>
+            <form onSubmit={handlePasswordResetRequest}>
               <p className="text-secondary">
-                Password recovery is not connected yet. We will implement a
-                secure password recovery process separately.
+                Enter your registered email address. We will send a reset link
+                if an account exists.
               </p>
 
+              <div className="mb-3">
+                <label htmlFor="reset-email" className="form-label">
+                  Email Address
+                </label>
+
+                <input
+                  id="reset-email"
+                  type="email"
+                  className="form-control form-control-lg"
+                  placeholder="Enter your registered email"
+                  value={resetEmail}
+                  onChange={(event) => setResetEmail(event.target.value)}
+                  autoComplete="email"
+                  required
+                />
+              </div>
+
               <button
-                type="button"
-                className="btn btn-outline-primary w-100"
-                onClick={() => changePage('login')}
+                type="submit"
+                className="btn btn-primary btn-lg w-100"
+                disabled={loading}
               >
-                Back to Sign In
+                {loading ? 'Sending...' : 'Send Reset Link'}
               </button>
-            </div>
+
+              <p className="text-center mt-3 mb-0">
+                <button
+                  type="button"
+                  className="btn btn-link"
+                  onClick={() => changePage('login')}
+                >
+                  Back to Sign In
+                </button>
+              </p>
+            </form>
+          )}
+          
+          {page === 'reset' && (
+            <form onSubmit={handlePasswordReset}>
+              <p className="text-secondary">
+                Enter your new password below.
+              </p>
+
+              <div className="mb-3">
+                <label htmlFor="new-password" className="form-label">
+                  New Password
+                </label>
+                <input
+                  id="new-password"
+                  type="password"
+                  className="form-control form-control-lg"
+                  value={resetPassword}
+                  onChange={(event) => setResetPassword(event.target.value)}
+                  autoComplete="new-password"
+                  required
+                />
+                </div>
+
+                <div className="mb-3">
+                  <label htmlFor="reset-confirm-password" className="form-label">
+                    Confirm New Password
+                  </label>
+                  <input
+                    id="reset-confirm-password"
+                    type="password"
+                    className="form-control form-control-lg"
+                    value={resetConfirmPassword}
+                    onChange={(event) => setResetConfirmPassword(event.target.value)}
+                    autoComplete="new-password"
+                    required
+                  />
+                </div>
+
+                <button
+                  type="submit"
+                  className="btn btn-primary btn-lg w-100"
+                  disabled={loading}
+                >
+                  {loading ? 'Resetting Password...' : 'Reset Password'}
+                </button>
+
+                <p className="text-center mt-3 mb-0">
+                  <button
+                    type="button"
+                    className="btn btn-link"
+                    onClick={() => {
+                    window.history.replaceState({}, '', window.location.pathname)
+                    changePage('login')
+                  }}
+                >
+                  Back to Sign In
+                </button>
+              </p>
+            </form>
           )}
 
           <p className="text-secondary text-center small mt-4 mb-0">

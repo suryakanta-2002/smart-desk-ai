@@ -296,6 +296,29 @@ export async function getUsers(accessToken) {
   return data
 }
 
+export async function getAssignableUsers(accessToken) {
+  const response = await fetch(
+    `${API_BASE_URL}/api/tasks/assignable-users/`,
+    {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+    },
+  )
+
+  const data = await response.json().catch(() => ({}))
+
+  if (!response.ok) {
+    throw new Error(
+      data.detail || 'Unable to load assignable employees.',
+    )
+  }
+
+  return data
+}
+
 export async function assignUserRole(accessToken, userId, role) {
   const response = await fetch(
     `${API_BASE_URL}/api/auth/users/${userId}/role/`,
@@ -340,3 +363,66 @@ export async function getTeamReports(accessToken) {
 
   return data
 }
+
+export async function requestPasswordReset(email) {
+  const response = await fetch(
+    `${API_BASE_URL}/api/auth/password-reset/`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ email }),
+    },
+  )
+
+  const data = await response.json().catch(() => ({}))
+
+  if (!response.ok) {
+    const message =
+      data.email?.[0] ||
+      data.detail ||
+      'Unable to request password reset.'
+
+    throw new Error(message)
+  }
+
+  return data
+}
+
+export async function confirmPasswordReset(
+  uid,
+  token,
+  password,
+  confirm_password,
+) {
+  const response = await fetch(
+    `${API_BASE_URL}/api/auth/password-reset/confirm/`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        uid,
+        token,
+        password,
+        confirm_password,
+      }),
+    },
+  )
+
+  const data = await response.json().catch(() => ({}))
+
+  if (!response.ok) {
+    const message =
+      data.detail ||
+      Object.values(data).flat().join(' ') ||
+      'Unable to reset password.'
+
+    throw new Error(message)
+  }
+
+  return data
+}
+
