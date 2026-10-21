@@ -7,6 +7,46 @@ from .permissions import has_permission
 from .serializers import RegisterSerializer, LoginSerializer, AssignRoleSerializer, UserListSerializer, UserStatusSerializer, ProfileUpdateSerializer
 from rest_framework.permissions import IsAuthenticated
 from drf_spectacular.utils import extend_schema
+import os
+import requests
+from rest_framework.exceptions import ValidationError
+
+
+def verify_recaptcha(token):
+    if not token:
+        raise ValidationError({
+            "captcha": "Please complete the reCAPTCHA verification."
+        })
+
+    secret_key = os.getenv("RECAPTCHA_SECRET_KEY")
+
+    if not secret_key:
+        raise ValidationError({
+            "captcha": "reCAPTCHA is not configured on the server."
+        })
+
+    try:
+        response = requests.post(
+            "https://www.google.com/recaptcha/api/siteverify",
+            data={
+                "secret": secret_key,
+                "response": token,
+            },
+            timeout=10,
+        )
+        response.raise_for_status()
+        result = response.json()
+    except (requests.RequestException, ValueError):
+        raise ValidationError({
+            "captcha": "Unable to verify CAPTCHA. Please try again."
+        })
+
+    if not result.get("success"):
+        raise ValidationError({
+            "captcha": "CAPTCHA verification failed. Please try again."
+        })
+
+
 class RegisterView(APIView):
     @extend_schema(
         request=RegisterSerializer,
@@ -25,6 +65,11 @@ class RegisterView(APIView):
         description="Register a new user account.",
     )
     def post(self, request):
+        captcha_token = request.data.get("captcha_token")
+
+        # Verify Google reCAPTCHA before creating the account.
+        verify_recaptcha(captcha_token)
+
         serializer = RegisterSerializer(data=request.data)
 
         if serializer.is_valid():
@@ -40,6 +85,7 @@ class RegisterView(APIView):
             serializer.errors,
             status=status.HTTP_400_BAD_REQUEST,
         )
+
 class LoginView(APIView):
 
     def post(self, request):
@@ -81,6 +127,7 @@ class ProfileView(APIView):
                 "first_name": user.first_name,
                 "last_name": user.last_name,
                 "email": user.email,
+                "role": user.role.name if user.role else None,
             },
             status=status.HTTP_200_OK,
         )
@@ -103,6 +150,7 @@ class ProfileView(APIView):
                     "first_name": user.first_name,
                     "last_name": user.last_name,
                     "email": user.email,
+                    "role": user.role.name if user.role else None,
                 },
                 status=status.HTTP_200_OK,
             )

@@ -5,14 +5,26 @@ import {
   createTask,
   updateTask,
   deleteTask,
+  getUsers,
+  assignUserRole,
+  getTeamReports,
 } from '../api/client.js'
 import AIAssistant from './AIAssistant.jsx'
-import Profile from "./Profile";
-function Dashboard({ user, accessToken, onLogout,onProfileUpdated,}) {
+import Profile from './Profile'
+
+function Dashboard({ user, accessToken, onLogout, onProfileUpdated }) {
   const [activeMenu, setActiveMenu] = useState('Dashboard')
   const [tasks, setTasks] = useState([])
+  const [teamMembers, setTeamMembers] = useState([])
+  const [loadingMembers, setLoadingMembers] = useState(false)
+  const [membersError, setMembersError] = useState('')
+  const [updatingRoleId, setUpdatingRoleId] = useState(null)
+  const [roleUpdateError, setRoleUpdateError] = useState('')
+  const [roleUpdateSuccess, setRoleUpdateSuccess] = useState('')
+  const [teamReportData, setTeamReportData] = useState(null)
+  const [loadingReports, setLoadingReports] = useState(false)
+  const [reportsError, setReportsError] = useState('')
 
-  // Search, filter and sorting states
   const [searchText, setSearchText] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
   const [priorityFilter, setPriorityFilter] = useState('all')
@@ -20,7 +32,6 @@ function Dashboard({ user, accessToken, onLogout,onProfileUpdated,}) {
 
   const [loadingTasks, setLoadingTasks] = useState(true)
   const [taskError, setTaskError] = useState('')
-
   const [showTaskForm, setShowTaskForm] = useState(false)
   const [taskTitle, setTaskTitle] = useState('')
   const [taskDescription, setTaskDescription] = useState('')
@@ -34,31 +45,193 @@ function Dashboard({ user, accessToken, onLogout,onProfileUpdated,}) {
   const [statusUpdatingTaskId, setStatusUpdatingTaskId] = useState(null)
   const [deletingTaskId, setDeletingTaskId] = useState(null)
 
+  const [showAIAssistant, setShowAIAssistant] = useState(false)
+
   const displayName =
     [user?.first_name, user?.last_name].filter(Boolean).join(' ') ||
     user?.username ||
     'User'
-  const [showAIAssistant, setShowAIAssistant] = useState(false)
-  // Load tasks from the backend.
+
+  const role = user?.role?.trim()?.toLowerCase()
+
+  const allMenuItems = [
+    {
+      name: 'Dashboard',
+      icon: '⌂',
+      roles: ['admin', 'manager', 'employee'],
+    },
+    {
+      name: 'My Tasks',
+      icon: '✓',
+      roles: ['admin', 'manager', 'employee'],
+    },
+    {
+      name: 'Team Reports',
+      icon: '▤',
+      roles: ['admin', 'manager'],
+    },
+    {
+      name: 'AI Assistant',
+      icon: '✧',
+      roles: ['admin', 'manager', 'employee'],
+    },
+    {
+      name: 'Team Members',
+      icon: '♙',
+      roles: ['admin'],
+    },
+    {
+      name: 'Settings',
+      icon: '⚙',
+      roles: ['admin', 'manager', 'employee'],
+    },
+  ]
+
+  const menuItems = allMenuItems.filter((item) =>
+    item.roles.includes(role),
+  )
+
+  // Load tasks.
   useEffect(() => {
+    let cancelled = false
+
     async function loadTasks() {
       try {
         setLoadingTasks(true)
         setTaskError('')
 
         const data = await getTasks(accessToken)
-        setTasks(data)
+
+        if (!cancelled) {
+          setTasks(Array.isArray(data) ? data : [])
+        }
       } catch (error) {
-        setTaskError(error.message || 'Unable to load tasks.')
+        if (!cancelled) {
+          setTaskError(error.message || 'Unable to load tasks.')
+        }
       } finally {
-        setLoadingTasks(false)
+        if (!cancelled) {
+          setLoadingTasks(false)
+        }
       }
     }
 
     loadTasks()
+
+    return () => {
+      cancelled = true
+    }
   }, [accessToken])
 
-  // Create a new task.
+  // Load Team Reports.
+  useEffect(() => {
+    if (
+      activeMenu !== 'Team Reports' ||
+      !['admin', 'manager'].includes(role)
+    ) {
+      return
+    }
+
+    let cancelled = false
+
+    async function loadTeamReports() {
+      try {
+        setLoadingReports(true)
+        setReportsError('')
+
+        const data = await getTeamReports(accessToken)
+
+        if (!cancelled) {
+          setTeamReportData(data)
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setReportsError(
+            error.message || 'Unable to load team reports.',
+          )
+        }
+      } finally {
+        if (!cancelled) {
+          setLoadingReports(false)
+        }
+      }
+    }
+
+    loadTeamReports()
+
+    return () => {
+      cancelled = true
+    }
+  }, [activeMenu, accessToken, role])
+
+  // Load team members for Admin.
+  useEffect(() => {
+    if (activeMenu !== 'Team Members' || role !== 'admin') {
+      return
+    }
+
+    let cancelled = false
+
+    async function loadTeamMembers() {
+      try {
+        setLoadingMembers(true)
+        setMembersError('')
+        setRoleUpdateError('')
+        setRoleUpdateSuccess('')
+
+        const data = await getUsers(accessToken)
+
+        if (!cancelled) {
+          setTeamMembers(Array.isArray(data) ? data : [])
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setMembersError(
+            error.message || 'Unable to load team members.',
+          )
+        }
+      } finally {
+        if (!cancelled) {
+          setLoadingMembers(false)
+        }
+      }
+    }
+
+    loadTeamMembers()
+
+    return () => {
+      cancelled = true
+    }
+  }, [activeMenu, accessToken, role])
+
+  // Update a team member's role.
+  async function handleRoleChange(memberId, newRole) {
+    setRoleUpdateError('')
+    setRoleUpdateSuccess('')
+    setUpdatingRoleId(memberId)
+
+    try {
+      await assignUserRole(accessToken, memberId, newRole)
+
+      setTeamMembers((currentMembers) =>
+        currentMembers.map((member) =>
+          member.id === memberId
+            ? { ...member, role: newRole }
+            : member,
+        ),
+      )
+
+      setRoleUpdateSuccess('User role updated successfully.')
+    } catch (error) {
+      setRoleUpdateError(
+        error.message || 'Unable to update user role.',
+      )
+    } finally {
+      setUpdatingRoleId(null)
+    }
+  }
+
+  // Create a task.
   async function handleCreateTask(event) {
     event.preventDefault()
     setTaskError('')
@@ -77,6 +250,10 @@ function Dashboard({ user, accessToken, onLogout,onProfileUpdated,}) {
       setTaskDescription('')
       setTaskPriority('medium')
       setShowTaskForm(false)
+
+      if (activeMenu === 'Team Reports') {
+        setTeamReportData(null)
+      }
     } catch (error) {
       setTaskError(error.message || 'Unable to create task.')
     } finally {
@@ -84,15 +261,15 @@ function Dashboard({ user, accessToken, onLogout,onProfileUpdated,}) {
     }
   }
 
-  // Open the edit form for a selected task.
+  // Start editing a task.
   function startEditingTask(task) {
     setEditingTaskId(task.id)
     setEditTitle(task.title)
-    setEditPriority(task.priority)
+    setEditPriority(task.priority || 'medium')
     setTaskError('')
   }
 
-  // Update an existing task's title and priority.
+  // Update a task.
   async function handleUpdateTask(event, taskId) {
     event.preventDefault()
     setTaskError('')
@@ -120,7 +297,7 @@ function Dashboard({ user, accessToken, onLogout,onProfileUpdated,}) {
     }
   }
 
-  // Update the status of a task.
+  // Update task status.
   async function handleStatusChange(taskId, newStatus) {
     setTaskError('')
     setStatusUpdatingTaskId(taskId)
@@ -136,13 +313,15 @@ function Dashboard({ user, accessToken, onLogout,onProfileUpdated,}) {
         ),
       )
     } catch (error) {
-      setTaskError(error.message || 'Unable to update task status.')
+      setTaskError(
+        error.message || 'Unable to update task status.',
+      )
     } finally {
       setStatusUpdatingTaskId(null)
     }
   }
 
-  // Delete a task after confirmation.
+  // Delete a task.
   async function handleDeleteTask(taskId) {
     const confirmed = window.confirm(
       'Are you sure you want to delete this task?',
@@ -170,15 +349,6 @@ function Dashboard({ user, accessToken, onLogout,onProfileUpdated,}) {
     }
   }
 
-  const menuItems = [
-    { name: 'Dashboard', icon: '⌂' },
-    { name: 'My Tasks', icon: '✓' },
-    { name: 'Team Reports', icon: '▥' },
-    { name: 'AI Assistant', icon: '✧' },
-    { name: 'Team Members', icon: '♙' },
-    { name: 'Settings', icon: '⚙' },
-  ]
-
   const completedTasks = tasks.filter(
     (task) => task.status === 'completed',
   ).length
@@ -188,7 +358,7 @@ function Dashboard({ user, accessToken, onLogout,onProfileUpdated,}) {
       ? Math.round((completedTasks / tasks.length) * 100)
       : 0
 
-  // Filter and sort tasks without changing the original tasks array.
+  // Search, filter and sort tasks.
   const filteredTasks = tasks
     .filter((task) => {
       const matchesSearch = (task.title || '')
@@ -205,19 +375,21 @@ function Dashboard({ user, accessToken, onLogout,onProfileUpdated,}) {
     })
     .sort((a, b) => {
       if (sortBy === 'newest') {
-        return new Date(b.created_at || 0) - new Date(a.created_at || 0)
+        return (
+          new Date(b.created_at || 0) -
+          new Date(a.created_at || 0)
+        )
       }
 
       if (sortBy === 'oldest') {
-        return new Date(a.created_at || 0) - new Date(b.created_at || 0)
+        return (
+          new Date(a.created_at || 0) -
+          new Date(b.created_at || 0)
+        )
       }
 
       if (sortBy === 'priority') {
-        const priorityOrder = {
-          high: 3,
-          medium: 2,
-          low: 1,
-        }
+        const priorityOrder = { high: 3, medium: 2, low: 1 }
 
         return (
           (priorityOrder[b.priority] || 0) -
@@ -231,6 +403,8 @@ function Dashboard({ user, accessToken, onLogout,onProfileUpdated,}) {
 
       return 0
     })
+
+  // AI Assistant page.
   if (showAIAssistant) {
     return (
       <AIAssistant
@@ -238,17 +412,413 @@ function Dashboard({ user, accessToken, onLogout,onProfileUpdated,}) {
         onBack={() => setShowAIAssistant(false)}
       />
     )
-  }  
-  if (activeMenu === "Settings") {
+  }
+
+  // Team Members page — Admin only.
+  if (activeMenu === 'Team Members' && role === 'admin') {
+    return (
+      <div className="container-fluid p-4">
+        <div className="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-3">
+          <div>
+            <h1 className="fw-bold">Team Members</h1>
+            <p className="text-secondary mb-0">
+              View registered users, their roles, and account status.
+            </p>
+          </div>
+
+          <button
+            type="button"
+            className="btn btn-outline-secondary"
+            onClick={() => setActiveMenu('Dashboard')}
+          >
+            Back to Dashboard
+          </button>
+        </div>
+
+        {loadingMembers && (
+          <p className="text-secondary">Loading team members...</p>
+        )}
+
+        {membersError && (
+          <div className="alert alert-danger" role="alert">
+            {membersError}
+          </div>
+        )}
+
+        {roleUpdateError && (
+          <div className="alert alert-danger" role="alert">
+            {roleUpdateError}
+          </div>
+        )}
+
+        {roleUpdateSuccess && (
+          <div className="alert alert-success" role="status">
+            {roleUpdateSuccess}
+          </div>
+        )}
+
+        {!loadingMembers && !membersError && (
+          <div className="card border-0 shadow-sm">
+            <div className="table-responsive">
+              <table className="table table-hover align-middle mb-0">
+                <thead className="table-light">
+                  <tr>
+                    <th>Username</th>
+                    <th>Full Name</th>
+                    <th>Email</th>
+                    <th>Role</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+
+                <tbody>
+                  {teamMembers.length === 0 ? (
+                    <tr>
+                      <td colSpan={5} className="text-center py-4">
+                        No team members found.
+                      </td>
+                    </tr>
+                  ) : (
+                    teamMembers.map((member) => (
+                      <tr key={member.id}>
+                        <td>{member.username}</td>
+                        <td>
+                          {[member.first_name, member.last_name]
+                            .filter(Boolean)
+                            .join(' ') || '—'}
+                        </td>
+                        <td>{member.email || '—'}</td>
+                        <td>
+                          <select
+                            className="form-select form-select-sm"
+                            aria-label={`Role for ${member.username}`}
+                            value={member.role || ''}
+                            disabled={updatingRoleId === member.id}
+                            onChange={(event) =>
+                              handleRoleChange(
+                                member.id,
+                                event.target.value,
+                              )
+                            }
+                          >
+                            <option value="" disabled>
+                              Select role
+                            </option>
+                            <option value="Admin">Admin</option>
+                            <option value="Manager">Manager</option>
+                            <option value="Employee">Employee</option>
+                          </select>
+
+                          {updatingRoleId === member.id && (
+                            <small className="text-secondary">
+                              Updating...
+                            </small>
+                          )}
+                        </td>
+                        <td>
+                          <span
+                            className={`badge ${
+                              member.is_active
+                                ? 'text-bg-success'
+                                : 'text-bg-secondary'
+                            }`}
+                          >
+                            {member.is_active ? 'Active' : 'Inactive'}
+                          </span>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  // Team Reports page — Admin and Manager only.
+  if (
+    activeMenu === 'Team Reports' &&
+    (role === 'admin' || role === 'manager')
+  ) {
+    const totalTasks = teamReportData?.total_tasks ?? 0
+    const completedCount = teamReportData?.completed_tasks ?? 0
+    const pendingCount = teamReportData?.pending_tasks ?? 0
+    const inProgressCount = teamReportData?.in_progress_tasks ?? 0
+    const highPriorityCount = teamReportData?.high_priority_tasks ?? 0
+
+    const reportCards = [
+      {
+        title: 'Total Tasks',
+        count: totalTasks,
+        color: 'primary',
+      },
+      {
+        title: 'Completed Tasks',
+        count: completedCount,
+        color: 'success',
+      },
+      {
+        title: 'Pending Tasks',
+        count: pendingCount,
+        color: 'secondary',
+      },
+      {
+        title: 'In Progress',
+        count: inProgressCount,
+        color: 'info',
+      },
+      {
+        title: 'High Priority',
+        count: highPriorityCount,
+        color: 'danger',
+      },
+    ]
+
+    const memberReports = Array.isArray(teamReportData?.member_reports)
+      ? teamReportData.member_reports
+      : []
+
+    return (
+      <div className="container-fluid p-4">
+        <div className="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-3">
+          <div>
+            <h1 className="fw-bold">Team Reports</h1>
+            <p className="text-secondary mb-0">
+              Task progress and team workload overview.
+            </p>
+          </div>
+
+          <button
+            type="button"
+            className="btn btn-outline-secondary"
+            onClick={() => setActiveMenu('Dashboard')}
+          >
+            Back to Dashboard
+          </button>
+        </div>
+
+        {loadingReports && (
+          <p className="text-secondary">Loading task reports...</p>
+        )}
+
+        {reportsError && (
+          <div className="alert alert-danger" role="alert">
+            {reportsError}
+            <button
+              type="button"
+              className="btn btn-sm btn-outline-danger ms-3"
+              onClick={() => {
+                setTeamReportData(null)
+                setActiveMenu('Dashboard')
+                setTimeout(() => setActiveMenu('Team Reports'), 0)
+              }}
+            >
+              Try Again
+            </button>
+          </div>
+        )}
+
+        {!loadingReports && !reportsError && teamReportData && (
+          <>
+            {/* Summary cards */}
+            <div className="row g-4 mb-4">
+              {reportCards.map((card) => (
+                <div
+                  className="col-12 col-sm-6 col-xl-4"
+                  key={card.title}
+                >
+                  <div className="card border-0 shadow-sm h-100">
+                    <div className="card-body p-4">
+                      <p className="text-secondary mb-2">
+                        {card.title}
+                      </p>
+                      <h2 className={`fw-bold text-${card.color} mb-0`}>
+                        {card.count}
+                      </h2>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Task Status Summary */}
+            <div className="card border-0 shadow-sm">
+              <div className="card-body p-4">
+                <h5 className="fw-bold mb-4">
+                  Task Status Summary
+                </h5>
+
+                {[
+                  {
+                    label: 'Completed',
+                    count: completedCount,
+                    color: 'success',
+                  },
+                  {
+                    label: 'Pending',
+                    count: pendingCount,
+                    color: 'secondary',
+                  },
+                  {
+                    label: 'In Progress',
+                    count: inProgressCount,
+                    color: 'info',
+                  },
+                ].map((item) => {
+                  const percentage =
+                    totalTasks > 0
+                      ? Math.round((item.count / totalTasks) * 100)
+                      : 0
+
+                  return (
+                    <div className="mb-4" key={item.label}>
+                      <div className="d-flex justify-content-between mb-2">
+                        <span>{item.label}</span>
+                        <span className="fw-semibold">
+                          {item.count} ({percentage}%)
+                        </span>
+                      </div>
+
+                      <div
+                        className="progress"
+                        role="progressbar"
+                        aria-label={`${item.label} tasks`}
+                        aria-valuenow={percentage}
+                        aria-valuemin="0"
+                        aria-valuemax="100"
+                      >
+                        <div
+                          className={`progress-bar bg-${item.color}`}
+                          style={{ width: `${percentage}%` }}
+                        />
+                      </div>
+                    </div>
+                  )
+                })}
+
+                {totalTasks === 0 && (
+                  <p className="text-secondary mb-0">
+                    No tasks are available to report yet.
+                  </p>
+                )}
+              </div>
+            </div>
+
+            {/* Team Member Breakdown */}
+            <div className="card border-0 shadow-sm mt-4">
+              <div className="card-body p-4">
+                <div className="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-4">
+                  <div>
+                    <h5 className="fw-bold mb-1">
+                      Team Member Breakdown
+                    </h5>
+                    <p className="text-secondary mb-0">
+                      Task workload and progress for each team member.
+                    </p>
+                  </div>
+
+                  <span className="badge text-bg-primary">
+                    {memberReports.length} Members
+                  </span>
+                </div>
+
+                {memberReports.length > 0 ? (
+                  <div className="table-responsive">
+                    <table className="table table-hover align-middle mb-0">
+                      <thead className="table-light">
+                        <tr>
+                          <th>Team Member</th>
+                          <th>Email</th>
+                          <th>Total Tasks</th>
+                          <th>Completed</th>
+                          <th>Pending</th>
+                          <th>In Progress</th>
+                        </tr>
+                      </thead>
+
+                      <tbody>
+                        {memberReports.map((member) => (
+                          <tr key={member.user_id}>
+                            <td>
+                              <div className="fw-semibold">
+                                {[
+                                  member.first_name,
+                                  member.last_name,
+                                ]
+                                  .filter(Boolean)
+                                  .join(' ') || member.username || '—'}
+                              </div>
+                              {member.username && (
+                                <small className="text-secondary">
+                                  @{member.username}
+                                </small>
+                              )}
+                            </td>
+
+                            <td>{member.email || '—'}</td>
+
+                            <td>
+                              <span className="badge text-bg-primary">
+                                {member.total_tasks ?? 0}
+                              </span>
+                            </td>
+
+                            <td>
+                              <span className="badge text-bg-success">
+                                {member.completed_tasks ?? 0}
+                              </span>
+                            </td>
+
+                            <td>
+                              <span className="badge text-bg-secondary">
+                                {member.pending_tasks ?? 0}
+                              </span>
+                            </td>
+
+                            <td>
+                              <span className="badge text-bg-info">
+                                {member.in_progress_tasks ?? 0}
+                              </span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <div className="text-center border rounded-3 p-4">
+                    <h6 className="fw-bold">
+                      No member report data available
+                    </h6>
+                    <p className="text-secondary mb-0">
+                      Member task statistics will appear here when
+                      the report API returns member data.
+                    </p>
+                  </div>
+                )}
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+    )
+  }
+
+  // Profile / Settings page.
+  if (activeMenu === 'Settings') {
     return (
       <Profile
         user={user}
         accessToken={accessToken}
         onProfileUpdated={onProfileUpdated}
-        onBack={() => setActiveMenu("Dashboard")}
+        onBack={() => setActiveMenu('Dashboard')}
       />
-    );
+    )
   }
+
   return (
     <div className="d-flex min-vh-100">
       {/* Sidebar */}
@@ -282,7 +852,6 @@ function Dashboard({ user, accessToken, onLogout,onProfileUpdated,}) {
                   setActiveMenu(item.name)
                 }
               }}
-
               className="btn text-start d-flex align-items-center gap-3 p-3"
               style={{
                 color: '#e2eaff',
@@ -321,7 +890,9 @@ function Dashboard({ user, accessToken, onLogout,onProfileUpdated,}) {
         <div className="d-flex justify-content-end align-items-center gap-3">
           <div className="text-end">
             <div className="fw-semibold">{displayName}</div>
-            <small className="text-secondary">Workspace Member</small>
+            <small className="text-secondary">
+              {user?.role || 'Workspace Member'}
+            </small>
           </div>
 
           <button
@@ -334,7 +905,9 @@ function Dashboard({ user, accessToken, onLogout,onProfileUpdated,}) {
         </div>
 
         <div className="mt-5">
-          <p className="text-primary fw-semibold mb-1">WELCOME BACK</p>
+          <p className="text-primary fw-semibold mb-1">
+            WELCOME BACK
+          </p>
           <h1 className="fw-bold">Hello, {displayName}! 👋</h1>
           <p className="text-secondary">
             Here’s what’s happening with your work today.
@@ -358,8 +931,10 @@ function Dashboard({ user, accessToken, onLogout,onProfileUpdated,}) {
           <div className="col-12 col-md-6 col-xl-3">
             <div className="card h-100 border-0 shadow-sm">
               <div className="card-body p-4">
-                <p className="text-success fw-semibold">TEAM MEMBERS</p>
-                <h2 className="fw-bold">0</h2>
+                <p className="text-success fw-semibold">
+                  TEAM MEMBERS
+                </p>
+                <h2 className="fw-bold">{teamMembers.length}</h2>
                 <p className="text-secondary mb-0">
                   Members in your team
                 </p>
@@ -374,7 +949,9 @@ function Dashboard({ user, accessToken, onLogout,onProfileUpdated,}) {
                   PROJECT PROGRESS
                 </p>
                 <h2 className="fw-bold">{progress}%</h2>
-                <p className="text-secondary mb-0">Tasks completed</p>
+                <p className="text-secondary mb-0">
+                  Tasks completed
+                </p>
               </div>
             </div>
           </div>
@@ -426,9 +1003,18 @@ function Dashboard({ user, accessToken, onLogout,onProfileUpdated,}) {
                 <div className="card-body p-4">
                   <div className="fs-2 text-success">▤</div>
                   <h5 className="fw-bold mt-2">View Reports</h5>
-                  <p className="text-secondary mb-0">
+                  <p className="text-secondary mb-2">
                     Review team progress and reports.
                   </p>
+                  {['admin', 'manager'].includes(role) && (
+                    <button
+                      type="button"
+                      className="btn btn-outline-success"
+                      onClick={() => setActiveMenu('Team Reports')}
+                    >
+                      Open Team Reports
+                    </button>
+                  )}
                 </div>
               </div>
             </div>
@@ -436,13 +1022,23 @@ function Dashboard({ user, accessToken, onLogout,onProfileUpdated,}) {
             <div className="col-12 col-md-4">
               <div className="card border-0 shadow-sm h-100">
                 <div className="card-body p-4">
-                  <div className="fs-2" style={{ color: '#7952f6' }}>
+                  <div
+                    className="fs-2"
+                    style={{ color: '#7952f6' }}
+                  >
                     ✧
                   </div>
                   <h5 className="fw-bold mt-2">AI Assistant</h5>
                   <p className="text-secondary mb-0">
                     Get help with your work.
                   </p>
+                  <button
+                    type="button"
+                    className="btn btn-outline-primary mt-2"
+                    onClick={() => setShowAIAssistant(true)}
+                  >
+                    Open AI Assistant
+                  </button>
                 </div>
               </div>
             </div>
@@ -465,14 +1061,19 @@ function Dashboard({ user, accessToken, onLogout,onProfileUpdated,}) {
                     type="text"
                     className="form-control"
                     value={taskTitle}
-                    onChange={(event) => setTaskTitle(event.target.value)}
+                    onChange={(event) =>
+                      setTaskTitle(event.target.value)
+                    }
                     placeholder="Enter task title"
                     required
                   />
                 </div>
 
                 <div className="mb-3">
-                  <label htmlFor="taskDescription" className="form-label">
+                  <label
+                    htmlFor="taskDescription"
+                    className="form-label"
+                  >
                     Description
                   </label>
                   <textarea
@@ -495,7 +1096,9 @@ function Dashboard({ user, accessToken, onLogout,onProfileUpdated,}) {
                     id="taskPriority"
                     className="form-select"
                     value={taskPriority}
-                    onChange={(event) => setTaskPriority(event.target.value)}
+                    onChange={(event) =>
+                      setTaskPriority(event.target.value)
+                    }
                   >
                     <option value="low">Low</option>
                     <option value="medium">Medium</option>
@@ -556,19 +1159,26 @@ function Dashboard({ user, accessToken, onLogout,onProfileUpdated,}) {
                   className="form-control"
                   placeholder="Search by task title..."
                   value={searchText}
-                  onChange={(event) => setSearchText(event.target.value)}
+                  onChange={(event) =>
+                    setSearchText(event.target.value)
+                  }
                 />
               </div>
 
               <div className="col-12 col-md-6 col-lg-3">
-                <label htmlFor="task-status-filter" className="form-label">
+                <label
+                  htmlFor="task-status-filter"
+                  className="form-label"
+                >
                   Filter by Status
                 </label>
                 <select
                   id="task-status-filter"
                   className="form-select"
                   value={statusFilter}
-                  onChange={(event) => setStatusFilter(event.target.value)}
+                  onChange={(event) =>
+                    setStatusFilter(event.target.value)
+                  }
                 >
                   <option value="all">All Statuses</option>
                   <option value="pending">Pending</option>
@@ -578,14 +1188,19 @@ function Dashboard({ user, accessToken, onLogout,onProfileUpdated,}) {
               </div>
 
               <div className="col-12 col-md-6 col-lg-3">
-                <label htmlFor="task-priority-filter" className="form-label">
+                <label
+                  htmlFor="task-priority-filter"
+                  className="form-label"
+                >
                   Filter by Priority
                 </label>
                 <select
                   id="task-priority-filter"
                   className="form-select"
                   value={priorityFilter}
-                  onChange={(event) => setPriorityFilter(event.target.value)}
+                  onChange={(event) =>
+                    setPriorityFilter(event.target.value)
+                  }
                 >
                   <option value="all">All Priorities</option>
                   <option value="low">Low</option>
@@ -606,7 +1221,9 @@ function Dashboard({ user, accessToken, onLogout,onProfileUpdated,}) {
                 >
                   <option value="newest">Newest First</option>
                   <option value="oldest">Oldest First</option>
-                  <option value="priority">Priority: High to Low</option>
+                  <option value="priority">
+                    Priority: High to Low
+                  </option>
                   <option value="title">Title: A–Z</option>
                 </select>
               </div>
@@ -623,9 +1240,10 @@ function Dashboard({ user, accessToken, onLogout,onProfileUpdated,}) {
             ) : filteredTasks.length === 0 ? (
               <div className="mt-4 p-4 border rounded-3 text-center">
                 <h6 className="fw-bold">
-                  {tasks.length === 0 ? 'No tasks yet' : 'No matching tasks'}
+                  {tasks.length === 0
+                    ? 'No tasks yet'
+                    : 'No matching tasks'}
                 </h6>
-
                 <p className="text-secondary mb-0">
                   {tasks.length === 0
                     ? 'Create your first task to get started.'
@@ -689,7 +1307,9 @@ function Dashboard({ user, accessToken, onLogout,onProfileUpdated,}) {
                             className="btn btn-primary btn-sm me-2"
                             disabled={updatingTask}
                           >
-                            {updatingTask ? 'Saving...' : 'Save Changes'}
+                            {updatingTask
+                              ? 'Saving...'
+                              : 'Save Changes'}
                           </button>
 
                           <button
@@ -704,9 +1324,9 @@ function Dashboard({ user, accessToken, onLogout,onProfileUpdated,}) {
                       ) : (
                         <>
                           <h6 className="fw-bold">{task.title}</h6>
-
                           <p className="text-secondary mb-3">
-                            {task.description || 'No description provided.'}
+                            {task.description ||
+                              'No description provided.'}
                           </p>
 
                           <span
@@ -718,7 +1338,10 @@ function Dashboard({ user, accessToken, onLogout,onProfileUpdated,}) {
                                   : 'text-bg-secondary'
                             }`}
                           >
-                            {task.status.replace('_', ' ')}
+                            {(task.status || 'pending').replace(
+                              '_',
+                              ' ',
+                            )}
                           </span>
 
                           <span
@@ -730,7 +1353,7 @@ function Dashboard({ user, accessToken, onLogout,onProfileUpdated,}) {
                                   : 'text-bg-success'
                             }`}
                           >
-                            {task.priority} priority
+                            {task.priority || 'medium'} priority
                           </span>
 
                           <div className="mt-3">
@@ -743,9 +1366,12 @@ function Dashboard({ user, accessToken, onLogout,onProfileUpdated,}) {
                             <select
                               id={`task-status-${task.id}`}
                               className="form-select form-select-sm"
-                              value={task.status}
+                              value={task.status || 'pending'}
                               onChange={(event) =>
-                                handleStatusChange(task.id, event.target.value)
+                                handleStatusChange(
+                                  task.id,
+                                  event.target.value,
+                                )
                               }
                               disabled={
                                 statusUpdatingTaskId === task.id ||
@@ -753,7 +1379,9 @@ function Dashboard({ user, accessToken, onLogout,onProfileUpdated,}) {
                               }
                             >
                               <option value="pending">Pending</option>
-                              <option value="in_progress">In Progress</option>
+                              <option value="in_progress">
+                                In Progress
+                              </option>
                               <option value="completed">Completed</option>
                             </select>
 
@@ -777,7 +1405,9 @@ function Dashboard({ user, accessToken, onLogout,onProfileUpdated,}) {
                             <button
                               type="button"
                               className="btn btn-outline-danger btn-sm"
-                              onClick={() => handleDeleteTask(task.id)}
+                              onClick={() =>
+                                handleDeleteTask(task.id)
+                              }
                               disabled={deletingTaskId !== null}
                             >
                               {deletingTaskId === task.id

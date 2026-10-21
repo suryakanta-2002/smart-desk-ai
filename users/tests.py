@@ -291,6 +291,35 @@ class RolePermissionAPITest(APITestCase):
             self.target_user.role.name,
             "Manager"
         )
+    
+    def test_employee_cannot_assign_role(self):
+        token = self.get_access_token(
+            self.employee_user
+        )
+
+        self.client.credentials(
+            HTTP_AUTHORIZATION=f"Bearer {token}"
+        )
+
+        response = self.client.patch(
+            f"/api/auth/users/{self.target_user.id}/role/",
+            {
+                "role": "Manager"
+            },
+            format="json"
+        )
+
+        self.assertEqual(
+            response.status_code,
+            403
+        )
+
+        self.target_user.refresh_from_db()
+
+        self.assertEqual(
+            self.target_user.role.name,
+            "Employee"
+        )
 
 class UserListAPITest(APITestCase):
 

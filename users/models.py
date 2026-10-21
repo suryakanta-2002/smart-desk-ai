@@ -38,6 +38,17 @@ class User(AbstractUser):
         blank=True,
         related_name="team_members"
     )
+    security_question = models.CharField(
+        max_length=255,
+        blank=True,
+        default=""
+    )
+
+    security_answer_hash = models.CharField(
+        max_length=128,
+        blank=True,
+        default=""
+    )
 
 class Permission(models.Model):
 

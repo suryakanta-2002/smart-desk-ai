@@ -272,3 +272,71 @@ export const updateUserProfile = async (accessToken, profileData) => {
 
   return data;
 };
+
+export async function getUsers(accessToken) {
+  const response = await fetch(
+    `${API_BASE_URL}/api/auth/users/`,
+    {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+    },
+  )
+
+  const data = await response.json().catch(() => ({}))
+
+  if (!response.ok) {
+    throw new Error(
+      data.detail || 'Unable to load team members.',
+    )
+  }
+
+  return data
+}
+
+export async function assignUserRole(accessToken, userId, role) {
+  const response = await fetch(
+    `${API_BASE_URL}/api/auth/users/${userId}/role/`,
+    {
+      method: 'PATCH',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ role }),
+    },
+  )
+
+  const data = await response.json().catch(() => ({}))
+
+  if (!response.ok) {
+    throw new Error(data.detail || 'Unable to update user role.')
+  }
+
+  return data
+}
+
+export async function getTeamReports(accessToken) {
+  const response = await fetch(
+    `${API_BASE_URL}/api/tasks/team-reports/`,
+    {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+    },
+  )
+
+  const data = await response.json().catch(() => ({}))
+
+  if (!response.ok) {
+    throw new Error(
+      data.detail || 'Unable to load team reports.',
+    )
+  }
+
+  return data
+}
