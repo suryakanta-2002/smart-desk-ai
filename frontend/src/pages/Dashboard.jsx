@@ -1,12 +1,20 @@
 ﻿import { useEffect, useState } from 'react'
-import {getTasks,createTask,updateTask,deleteTask,getUsers,getAssignableUsers,assignUserRole,updateUserStatus,getTeamReports, getUnreadNotificationCount,} from '../api/client.js'
+import {getTasks,createTask,updateTask,deleteTask,getUsers,getAssignableUsers,assignUserRole,updateUserStatus,getTeamReports, sendGroqWorkRequest,} from '../api/client.js'
 import AIAssistant from './AIAssistant.jsx'
 import Profile from './Profile'
 import Notifications from './Notifications.jsx'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 function Dashboard({ user, accessToken, onLogout, onProfileUpdated }) {
   const [activeMenu, setActiveMenu] = useState('Dashboard')
   const [tasks, setTasks] = useState([])
+  const [aiLoadingTaskId, setAiLoadingTaskId] = useState(null)
+  const [aiTaskError, setAiTaskError] = useState('')
+  const [aiTaskResult, setAiTaskResult] = useState(null)
   const [highlightedTaskId, setHighlightedTaskId] = useState(null)
+  const [aiChatMessages, setAiChatMessages] = useState([])
+  const [aiChatInput, setAiChatInput] = useState('')
+  const [aiChatLoading, setAiChatLoading] = useState(false)
   const [teamMembers, setTeamMembers] = useState([])
   const [memberSearch, setMemberSearch] = useState('')
   const [loadingMembers, setLoadingMembers] = useState(false)
@@ -26,6 +34,73 @@ function Dashboard({ user, accessToken, onLogout, onProfileUpdated }) {
   const [statusFilter, setStatusFilter] = useState('all')
   const [priorityFilter, setPriorityFilter] = useState('all')
   const [sortBy, setSortBy] = useState('newest')
+  
+  const handleGroqWork = async (task, action) => {
+    setAiLoadingTaskId(task.id)
+    setAiTaskError('')
+    setAiTaskResult(null)
+    setAiChatMessages([])
+    setAiChatInput('')
+    try {
+      const result = await sendGroqWorkRequest(accessToken, {
+        action: action,
+        task_id: task.id,
+      })
+
+      setAiTaskResult({
+        taskId: task.id,
+        action: action,
+        answer: result.answer,
+      })
+      setAiChatMessages([
+        {
+          role: 'assistant',
+          content: result.answer,
+        },
+      ])
+    } catch (error) {
+      setAiTaskError(error.message || 'AI request failed.')
+    } finally {
+      setAiLoadingTaskId(null)
+    }
+  }
+  
+  const handleSendGroqFollowUp = async (task) => {
+    const message = aiChatInput.trim()
+
+    if (!message || aiChatLoading) return
+
+    const previousMessages = aiChatMessages
+    const updatedMessages = [
+      ...previousMessages,
+      { role: 'user', content: message },
+    ]
+
+    setAiChatMessages(updatedMessages)
+    setAiChatInput('')
+    setAiChatLoading(true)
+    setAiTaskError('')
+
+    try {
+      const result = await sendGroqWorkRequest(accessToken, {
+        action: 'question',
+        task_id: task.id,
+        message,
+        conversation_history: previousMessages,
+      })
+
+      setAiChatMessages([
+        ...updatedMessages,
+        { role: 'assistant', content: result.answer },
+      ])
+    } catch (error) {
+      setAiTaskError(error.message || 'Follow-up request failed.')
+      setAiChatMessages(previousMessages)
+      setAiChatInput(message)
+    } finally {
+      setAiChatLoading(false)
+    }
+  }
 
   const [loadingTasks, setLoadingTasks] = useState(true)
   const [taskError, setTaskError] = useState('')
@@ -62,12 +137,12 @@ function Dashboard({ user, accessToken, onLogout, onProfileUpdated }) {
   const allMenuItems = [
     {
       name: 'Dashboard',
-      icon: '�',
+      icon: '⌂',
       roles: ['admin', 'manager', 'employee'],
     },
     {
       name: 'My Tasks',
-      icon: '?',
+      icon: '✓',
       roles: ['admin', 'manager', 'employee'],
     },
     {
@@ -77,27 +152,27 @@ function Dashboard({ user, accessToken, onLogout, onProfileUpdated }) {
     },
     {
       name: 'Team Reports',
-      icon: '?',
+      icon: '▤',
       roles: ['admin', 'manager'],
     },
     {
       name: 'AI Assistant',
-      icon: '?',
+      icon: '✦',
       roles: ['admin', 'manager', 'employee'],
     },
     {
       name: 'Team Members',
-      icon: '?',
+      icon: '♙',
       roles: ['admin', 'manager'],
     },
     {
       name: 'Notifications',
-      icon: '??',
+      icon: '🔔',
       roles: ['admin', 'manager', 'employee'],
     },
     {
       name: 'Settings',
-      icon: '?',
+      icon: '⚙',
       roles: ['admin', 'manager', 'employee'],
     },
   ]
@@ -1850,7 +1925,102 @@ function Dashboard({ user, accessToken, onLogout, onProfileUpdated }) {
                               {task.description ||
                                 'No description provided.'}
                             </p>
+                            <div className="d-flex gap-2 flex-wrap mb-3">
+                              <button
+                                type="button"
+                                className="btn btn-outline-primary btn-sm"
+                                onClick={() => handleGroqWork(task, 'summarize')}
+                                disabled={aiLoadingTaskId === task.id}
+                              >
+                                {aiLoadingTaskId === task.id ? 'Loading...' : 'Summarize Task'}
+                              </button>
 
+                              <button
+                                type="button"
+                                className="btn btn-outline-success btn-sm"
+                                onClick={() => handleGroqWork(task, 'plan')}
+                                disabled={aiLoadingTaskId === task.id}
+                              >
+                                Suggest Task Plan
+                              </button>
+                            </div>
+
+                            {aiTaskError && aiLoadingTaskId === null && (
+                              <div className="alert alert-danger py-2" role="alert">
+                                {aiTaskError}
+                              </div>
+                            )}
+
+                            {aiTaskResult?.taskId === task.id && (
+                              <>
+                              <div className="alert alert-info mt-2" role="status">
+                                <strong>
+                                  {aiTaskResult.action === 'summarize'
+                                    ? 'Task Summary'
+                                    : 'Suggested Task Plan'}
+                                </strong>
+                                <div className="mt-2">
+                                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                    {aiTaskResult.answer}
+                                  </ReactMarkdown>
+                                </div>
+                              </div>
+                              
+                              <div className="mt-3 border rounded p-3">
+                                <h6 className="fw-bold">Continue with Groq</h6>
+
+                                <div className="mb-3">
+                                  {aiChatMessages.map((chat, index) => (
+                                    <div
+                                      key={`${chat.role}-${index}`}
+                                      className={`mb-2 p-2 rounded ${
+                                        chat.role === 'user'
+                                          ? 'bg-light text-dark'
+                                          : 'bg-primary-subtle text-dark'
+                                      }`}
+                                    >
+                                      <strong>
+                                        {chat.role === 'user' ? 'You' : 'Groq'}
+                                      </strong>
+
+                                      <div className="mt-1">
+                                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                          {chat.content}
+                                        </ReactMarkdown>
+                                      </div>
+                                    </div>
+                                  
+                                  ))}
+                                </div>
+
+                                <form
+                                  onSubmit={(event) => {
+                                    event.preventDefault()
+                                    handleSendGroqFollowUp(task)
+                                  }}
+                                >
+                                  <div className="input-group">
+                                    <input
+                                      type="text"
+                                      className="form-control"
+                                      placeholder="Ask a follow-up question about this task..."
+                                      value={aiChatInput}
+                                      onChange={(event) => setAiChatInput(event.target.value)}
+                                      disabled={aiChatLoading}
+                                    />
+
+                                    <button
+                                      type="submit"
+                                      className="btn btn-primary"
+                                      disabled={aiChatLoading || !aiChatInput.trim()}
+                                    >
+                                      {aiChatLoading ? 'Thinking...' : 'Send'}
+                                    </button>
+                                  </div>
+                                </form>
+                              </div>
+                              </>
+                            )}
                             <span
                               className={`badge ${
                                 task.priority === 'high'

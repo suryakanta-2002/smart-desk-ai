@@ -13,6 +13,36 @@ class AIChatSerializer(serializers.Serializer):
         required=True,
         min_value=1,
     )
+    provider = serializers.ChoiceField(
+        choices=["gemini", "openai"],
+        required=False,
+        default="gemini",
+    )
+
+class GroqWorkSerializer(serializers.Serializer):
+    ACTION_CHOICES = [
+        ("summarize", "Summarize Task"),
+        ("plan", "Suggest Task Plan"),
+        ("question", "Work-related Question"),
+        ("report_insights", "Generate Report Insights"),
+    ]
+
+    action = serializers.ChoiceField(choices=ACTION_CHOICES)
+    message = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=4000,
+    )
+    task_id = serializers.IntegerField(
+        required=False,
+        min_value=1,
+    )
+    conversation_history = serializers.ListField(
+        child=serializers.DictField(),
+        required=False,
+        default=list,
+        max_length=20,
+    )
 
 class ChatMessageSerializer(serializers.ModelSerializer):
     class Meta:

@@ -203,6 +203,27 @@ export async function sendAIMessage(accessToken, conversationId, message) {
   return data
 }
 
+export async function sendGroqWorkRequest(accessToken, payload) {
+  const response = await fetch(`${API_BASE_URL}/api/ai/work/`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  })
+
+  const data = await response.json().catch(() => ({}))
+
+  if (!response.ok) {
+    throw new Error(
+      data.detail || 'Groq Work Assistant encountered an error.'
+    )
+  }
+
+  return data
+}
+
 export async function deleteConversation(accessToken, conversationId) {
   const response = await fetch(
     `${API_BASE_URL}/api/ai/conversations/${conversationId}/`,

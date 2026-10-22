@@ -143,7 +143,7 @@ class AIChatAPITest(APITestCase):
         self.assertEqual(response.status_code, 504)
         self.assertEqual(
             response.data["detail"],
-            "The AI service timed out. Please try again later.",
+            "The AI service took too long to respond. Please try again.",
         )
 
 
@@ -178,11 +178,10 @@ class AIChatAPITest(APITestCase):
             format="json",
         )
 
-        self.assertEqual(response.status_code, 502)
+        self.assertEqual(response.status_code, 503)
         self.assertEqual(
             response.data["detail"],
-            "The AI service is temporarily unavailable. "
-            "Please try again later.",
+            "AI service is temporarily unavailable. Please try again shortly.",
         )
 
 
@@ -213,7 +212,7 @@ class AIChatAPITest(APITestCase):
         self.assertEqual(response.status_code, 502)
         self.assertEqual(
             response.data["detail"],
-            "Gemini returned an empty response.",
+            "The AI service returned an empty response. Please try again.",
         )
     def test_user_cannot_access_another_users_conversation(self):
         # Give the employee permission to use the AI assistant.
@@ -324,7 +323,7 @@ class AIChatAPITest(APITestCase):
         self.assertEqual(response.status_code, 503)
         self.assertEqual(
             response.data["detail"],
-            "Gemini API key is not configured.",
+            "AI service configuration is missing.",
         )
         mock_client_class.assert_not_called()
 
@@ -351,3 +350,118 @@ class AIChatAPITest(APITestCase):
 
         self.assertEqual(response.status_code, 404)
         mock_client_class.assert_not_called()
+    
+    def test_openai_work_requires_authentication(self):
+        response = self.client.post(
+            "/api/ai/work/",
+            {
+                "action": "question",
+                "message": "How can I prioritize my work?",
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, 401)
+
+    @patch("ai_assistant.views.os.getenv")
+    @patch("ai_assistant.views.OpenAI")
+    def test_openai_can_summarize_own_task(
+        self, mock_openai, mock_getenv
+    ):
+        from tasks.models import Task
+
+        RolePermission.objects.get_or_create(
+            role=self.employee_role,
+            permission=self.permission,
+        )
+        self.authenticate(self.employee)
+
+        task = Task.objects.create(
+            title="Prepare project documentation",
+            description="Document the API endpoints and authentication flow.",
+            assigned_to=self.employee,
+        )
+
+        mock_getenv.side_effect = lambda key, default=None: {
+            "OPENAI_API_KEY": "test-key",
+            "OPENAI_MODEL": "gpt-4.1-mini",
+        }.get(key, default)
+
+        mock_openai.return_value.responses.create.return_value.output_text = (
+            "Document the API endpoints and authentication flow."
+        )
+
+        response = self.client.post(
+            "/api/ai/work/",
+            {"action": "summarize", "task_id": task.id},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["action"], "summarize")
+        self.assertIn("API endpoints", response.data["answer"])
+        mock_openai.return_value.responses.create.assert_called_once()
+
+    def test_openai_rejects_invalid_action(self):
+        RolePermission.objects.get_or_create(
+            role=self.employee_role,
+            permission=self.permission,
+        )
+        self.authenticate(self.employee)
+
+        response = self.client.post(
+            "/api/ai/work/",
+            {"action": "delete_everything", "message": "test"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+
+    def test_employee_cannot_request_team_report_insights(self):
+        RolePermission.objects.get_or_create(
+            role=self.employee_role,
+            permission=self.permission,
+        )
+
+        report_permission = Permission.objects.get(
+            name="view_team_reports"
+        )
+        RolePermission.objects.filter(
+            role=self.employee_role,
+            permission=report_permission,
+        ).delete()
+
+        self.authenticate(self.employee)
+
+        response = self.client.post(
+            "/api/ai/work/",
+            {
+                "action": "report_insights",
+                "message": "Analyze team performance.",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 403)
+
+    @patch("ai_assistant.views.os.getenv", return_value=None)
+    @patch("ai_assistant.views.OpenAI")
+    def test_openai_missing_api_key_returns_503(
+        self, mock_openai, mock_getenv
+    ):
+        RolePermission.objects.get_or_create(
+            role=self.employee_role,
+            permission=self.permission,
+        )
+        self.authenticate(self.employee)
+
+        response = self.client.post(
+            "/api/ai/work/",
+            {
+                "action": "question",
+                "message": "How should I prioritize my work?",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 503)
+        mock_openai.assert_not_called()
