@@ -4,7 +4,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from django.db.models import Count
-
+from django.utils import timezone
 from .models import Task
 from .serializers import TaskSerializer
 from users.models import User
@@ -162,24 +162,48 @@ class TaskAssignableUsersView(APIView):
             for employee in employees
         ])
 
-
 class TeamReportsView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        if not (
-            has_permission(request.user, 'view_team_reports')
-            or has_permission(request.user, 'manage_users')
-        ):
+        # Only users with report-view permission can access analytics.
+        if not has_permission(request.user, 'view_team_reports'):
             return Response(
-                {'detail': 'You do not have permission to view team reports.'},
+                {
+                    'detail': (
+                        'You do not have permission to view team reports.'
+                    )
+                },
                 status=status.HTTP_403_FORBIDDEN,
             )
 
         tasks = Task.objects.all()
+        now = timezone.now()
 
+        # Status analytics
+        total_tasks = tasks.count()
+        completed_tasks = tasks.filter(status='completed').count()
+        pending_tasks = tasks.filter(status='pending').count()
+        in_progress_tasks = tasks.filter(status='in_progress').count()
+
+        completion_rate = (
+            round((completed_tasks / total_tasks) * 100, 2)
+            if total_tasks else 0
+        )
+
+        # Priority analytics
+        low_priority_tasks = tasks.filter(priority='low').count()
+        medium_priority_tasks = tasks.filter(priority='medium').count()
+        high_priority_tasks = tasks.filter(priority='high').count()
+
+        # Overdue tasks: due date passed and task not completed.
+        overdue_tasks = tasks.filter(
+            due_date__lt=now
+        ).exclude(status='completed').count()
+
+        # Team-member analytics
         users = (
-            Task.objects
+            tasks
             .values(
                 'assigned_to',
                 'assigned_to__username',
@@ -198,29 +222,46 @@ class TeamReportsView(APIView):
                 assigned_to_id=member['assigned_to']
             )
 
+            member_total = member['total_tasks']
+            member_completed = member_tasks.filter(
+                status='completed'
+            ).count()
+
             member_reports.append({
                 'user_id': member['assigned_to'],
                 'username': member['assigned_to__username'],
                 'first_name': member['assigned_to__first_name'],
                 'last_name': member['assigned_to__last_name'],
                 'email': member['assigned_to__email'],
-                'total_tasks': member_tasks.count(),
-                'completed_tasks': member_tasks.filter(
-                    status='completed'
-                ).count(),
+                'total_tasks': member_total,
+                'completed_tasks': member_completed,
                 'pending_tasks': member_tasks.filter(
                     status='pending'
                 ).count(),
                 'in_progress_tasks': member_tasks.filter(
                     status='in_progress'
                 ).count(),
+                'overdue_tasks': member_tasks.filter(
+                    due_date__lt=now
+                ).exclude(status='completed').count(),
+                'completion_rate': (
+                    round((member_completed / member_total) * 100, 2)
+                    if member_total else 0
+                ),
             })
 
         return Response({
-            'total_tasks': tasks.count(),
-            'completed_tasks': tasks.filter(status='completed').count(),
-            'pending_tasks': tasks.filter(status='pending').count(),
-            'in_progress_tasks': tasks.filter(status='in_progress').count(),
-            'high_priority_tasks': tasks.filter(priority='high').count(),
+            # Existing fields: kept for frontend compatibility
+            'total_tasks': total_tasks,
+            'completed_tasks': completed_tasks,
+            'pending_tasks': pending_tasks,
+            'in_progress_tasks': in_progress_tasks,
+            'high_priority_tasks': high_priority_tasks,
             'member_reports': member_reports,
+
+            # New analytics fields
+            'completion_rate': completion_rate,
+            'overdue_tasks': overdue_tasks,
+            'low_priority_tasks': low_priority_tasks,
+            'medium_priority_tasks': medium_priority_tasks,
         })

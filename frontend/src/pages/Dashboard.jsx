@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+ï»¿import { useEffect, useState } from 'react'
 import {getTasks,createTask,updateTask,deleteTask,getUsers,getAssignableUsers,assignUserRole,updateUserStatus,getTeamReports, getUnreadNotificationCount,} from '../api/client.js'
 import AIAssistant from './AIAssistant.jsx'
 import Profile from './Profile'
@@ -62,7 +62,7 @@ function Dashboard({ user, accessToken, onLogout, onProfileUpdated }) {
   const allMenuItems = [
     {
       name: 'Dashboard',
-      icon: '¦',
+      icon: 'ï¿½',
       roles: ['admin', 'manager', 'employee'],
     },
     {
@@ -564,7 +564,7 @@ function Dashboard({ user, accessToken, onLogout, onProfileUpdated }) {
     )
   }
 
-  // Team Members page — Admin and manager.
+  // Team Members page ï¿½ Admin and manager.
   if (
     activeMenu === 'Team Members' &&
     ['admin', 'manager'].includes(role)
@@ -661,9 +661,9 @@ function Dashboard({ user, accessToken, onLogout, onProfileUpdated }) {
                         <td>
                           {[member.first_name, member.last_name]
                             .filter(Boolean)
-                            .join(' ') || '—'}
+                            .join(' ') || 'ï¿½'}
                         </td>
-                        <td>{member.email || '—'}</td>
+                        <td>{member.email || 'ï¿½'}</td>
                         <td>
                           {role === 'admin' && (
                             <select
@@ -737,7 +737,7 @@ function Dashboard({ user, accessToken, onLogout, onProfileUpdated }) {
     )
   }
 
-  // Team Reports page — Admin and Manager only.
+  // Team Reports page ï¿½ Admin and Manager only.
   if (
     activeMenu === 'Team Reports' &&
     canManageTasks
@@ -747,6 +747,11 @@ function Dashboard({ user, accessToken, onLogout, onProfileUpdated }) {
     const pendingCount = teamReportData?.pending_tasks ?? 0
     const inProgressCount = teamReportData?.in_progress_tasks ?? 0
     const highPriorityCount = teamReportData?.high_priority_tasks ?? 0
+    const completionRate = teamReportData?.completion_rate ?? 0
+    const overdueCount = teamReportData?.overdue_tasks ?? 0
+    const lowPriorityCount = teamReportData?.low_priority_tasks ?? 0
+    const mediumPriorityCount =
+      teamReportData?.medium_priority_tasks ?? 0
 
     const reportCards = [
       { title: 'Total Tasks', count: totalTasks, color: 'primary' },
@@ -768,6 +773,16 @@ function Dashboard({ user, accessToken, onLogout, onProfileUpdated }) {
       {
         title: 'High Priority',
         count: highPriorityCount,
+        color: 'danger',
+      },
+            {
+        title: 'Completion Rate',
+        count: `${completionRate}%`,
+        color: 'success',
+      },
+      {
+        title: 'Overdue Tasks',
+        count: overdueCount,
         color: 'danger',
       },
     ]
@@ -904,6 +919,62 @@ function Dashboard({ user, accessToken, onLogout, onProfileUpdated }) {
                     </div>
                   )
                 })}
+                
+            <div className="card border-0 shadow-sm mt-4">
+              <div className="card-body p-4">
+                <h5 className="fw-bold mb-4">
+                  Priority Breakdown
+                </h5>
+
+                {[
+                  {
+                    label: 'Low Priority',
+                    count: lowPriorityCount,
+                    color: 'success',
+                  },
+                  {
+                    label: 'Medium Priority',
+                    count: mediumPriorityCount,
+                    color: 'warning',
+                  },
+                  {
+                    label: 'High Priority',
+                    count: highPriorityCount,
+                    color: 'danger',
+                  },
+                ].map((item) => {
+                  const percentage =
+                    totalTasks > 0
+                      ? Math.round((item.count / totalTasks) * 100)
+                      : 0
+
+                  return (
+                    <div className="mb-4" key={item.label}>
+                      <div className="d-flex justify-content-between mb-2">
+                        <span>{item.label}</span>
+                        <span className="fw-semibold">
+                          {item.count} ({percentage}%)
+                        </span>
+                      </div>
+
+                      <div
+                        className="progress"
+                        role="progressbar"
+                        aria-label={item.label}
+                        aria-valuenow={percentage}
+                        aria-valuemin="0"
+                        aria-valuemax="100"
+                      >
+                        <div
+                          className={`progress-bar bg-${item.color}`}
+                          style={{ width: `${percentage}%` }}
+                        />
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
 
                 {totalTasks === 0 && (
                   <p className="text-secondary mb-0">
@@ -941,6 +1012,8 @@ function Dashboard({ user, accessToken, onLogout, onProfileUpdated }) {
                           <th>Completed</th>
                           <th>Pending</th>
                           <th>In Progress</th>
+                          <th>Completion Rate</th>
+                          <th>Overdue Tasks</th>
                         </tr>
                       </thead>
 
@@ -956,7 +1029,7 @@ function Dashboard({ user, accessToken, onLogout, onProfileUpdated }) {
                                   .filter(Boolean)
                                   .join(' ') ||
                                   member.username ||
-                                  '—'}
+                                  'ï¿½'}
                               </div>
 
                               {member.username && (
@@ -966,7 +1039,7 @@ function Dashboard({ user, accessToken, onLogout, onProfileUpdated }) {
                               )}
                             </td>
 
-                            <td>{member.email || '—'}</td>
+                            <td>{member.email || 'ï¿½'}</td>
                             <td>
                               <span className="badge text-bg-primary">
                                 {member.total_tasks ?? 0}
@@ -985,6 +1058,35 @@ function Dashboard({ user, accessToken, onLogout, onProfileUpdated }) {
                             <td>
                               <span className="badge text-bg-info">
                                 {member.in_progress_tasks ?? 0}
+                              </span>
+                            </td>
+                            
+                            <td>
+                              <div className="d-flex align-items-center gap-2">
+                                <span className="small fw-semibold">
+                                  {member.completion_rate ?? 0}%
+                                </span>
+                                <div
+                                  className="progress flex-grow-1"
+                                  style={{ minWidth: '60px', height: '8px' }}
+                                  role="progressbar"
+                                  aria-label="Member completion rate"
+                                  aria-valuenow={member.completion_rate ?? 0}
+                                  aria-valuemin="0"
+                                  aria-valuemax="100"
+                                >
+                                  <div
+                                    className="progress-bar bg-success"
+                                    style={{
+                                      width: `${member.completion_rate ?? 0}%`,
+                                    }}
+                                  />
+                                </div>
+                              </div>
+                            </td>
+                            <td>
+                              <span className="badge text-bg-danger">
+                                {member.overdue_tasks ?? 0}
                               </span>
                             </td>
                           </tr>
@@ -1145,7 +1247,7 @@ function Dashboard({ user, accessToken, onLogout, onProfileUpdated }) {
               </p>
               <h1 className="fw-bold">Hello, {displayName}! ??</h1>
               <p className="text-secondary">
-                Here’s what’s happening with your work today.
+                Hereï¿½s whatï¿½s happening with your work today.
               </p>
             </div>
 
@@ -1618,7 +1720,7 @@ function Dashboard({ user, accessToken, onLogout, onProfileUpdated }) {
                     <option value="priority">
                       Priority: High to Low
                     </option>
-                    <option value="title">Title: A–Z</option>
+                    <option value="title">Title: Aï¿½Z</option>
                   </select>
                 </div>
               </div>
