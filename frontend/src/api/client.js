@@ -296,6 +296,32 @@ export async function getUsers(accessToken) {
   return data
 }
 
+export async function updateUserStatus(accessToken, userId, is_active) {
+  const response = await fetch(
+    `${API_BASE_URL}/api/auth/users/${userId}/status/`,
+    {
+      method: 'PATCH',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ is_active }),
+    },
+  )
+
+  const data = await response.json().catch(() => ({}))
+
+  if (!response.ok) {
+    throw new Error(
+      data.detail ||
+        Object.values(data).flat().join(' ') ||
+        'Unable to update user status.',
+    )
+  }
+
+  return data
+}
+
 export async function getAssignableUsers(accessToken) {
   const response = await fetch(
     `${API_BASE_URL}/api/tasks/assignable-users/`,
@@ -426,3 +452,92 @@ export async function confirmPasswordReset(
   return data
 }
 
+export async function getNotifications(accessToken, filter = 'all') {
+  const query = filter === 'all'
+    ? ''
+    : `?unread=${filter === 'unread' ? 'true' : 'false'}`
+
+  const response = await fetch(
+    `${API_BASE_URL}/api/notifications/${query}`,
+    {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+    },
+  )
+
+  const data = await response.json()
+
+  if (!response.ok) {
+    throw new Error(data.detail || 'Failed to load notifications.')
+  }
+
+  return data
+}
+
+export async function getUnreadNotificationCount(accessToken) {
+  const response = await fetch(
+    `${API_BASE_URL}/api/notifications/unread-count/`,
+    {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+    },
+  )
+
+  const data = await response.json()
+
+  if (!response.ok) {
+    throw new Error(data.detail || 'Failed to load unread count.')
+  }
+
+  return data.unread_count
+}
+
+export async function markNotificationRead(accessToken, notificationId) {
+  const response = await fetch(
+    `${API_BASE_URL}/api/notifications/${notificationId}/read/`,
+    {
+      method: 'PATCH',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+    },
+  )
+
+  const data = await response.json()
+
+  if (!response.ok) {
+    throw new Error(data.detail || 'Failed to mark notification as read.')
+  }
+
+  return data
+}
+
+export async function deleteNotification(accessToken, notificationId) {
+  const response = await fetch(
+    `${API_BASE_URL}/api/notifications/${notificationId}/delete/`,
+    {
+      method: 'DELETE',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+    },
+  )
+
+  if (!response.ok) {
+    let message = 'Failed to delete notification.'
+
+    try {
+      const data = await response.json()
+      message = data.detail || message
+    } catch {
+      // DELETE may return an empty response.
+    }
+
+    throw new Error(message)
+  }
+}

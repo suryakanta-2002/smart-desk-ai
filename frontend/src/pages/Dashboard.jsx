@@ -1,18 +1,22 @@
-﻿import { useEffect, useState } from 'react'
-import {getTasks,createTask,updateTask,deleteTask,getUsers,getAssignableUsers,assignUserRole,getTeamReports,} from '../api/client.js'
+import { useEffect, useState } from 'react'
+import {getTasks,createTask,updateTask,deleteTask,getUsers,getAssignableUsers,assignUserRole,updateUserStatus,getTeamReports, getUnreadNotificationCount,} from '../api/client.js'
 import AIAssistant from './AIAssistant.jsx'
 import Profile from './Profile'
-
+import Notifications from './Notifications.jsx'
 function Dashboard({ user, accessToken, onLogout, onProfileUpdated }) {
   const [activeMenu, setActiveMenu] = useState('Dashboard')
   const [tasks, setTasks] = useState([])
+  const [highlightedTaskId, setHighlightedTaskId] = useState(null)
   const [teamMembers, setTeamMembers] = useState([])
+  const [memberSearch, setMemberSearch] = useState('')
   const [loadingMembers, setLoadingMembers] = useState(false)
   const [membersError, setMembersError] = useState('')
   const [updatingRoleId, setUpdatingRoleId] = useState(null)
   const [roleUpdateError, setRoleUpdateError] = useState('')
   const [roleUpdateSuccess, setRoleUpdateSuccess] = useState('')
-
+  const [updatingStatusId, setUpdatingStatusId] = useState(null)
+  const [statusUpdateError, setStatusUpdateError] = useState('')
+  const [statusUpdateSuccess, setStatusUpdateSuccess] = useState('')
   const [teamReportData, setTeamReportData] = useState(null)
   const [loadingReports, setLoadingReports] = useState(false)
   const [reportsError, setReportsError] = useState('')
@@ -29,6 +33,7 @@ function Dashboard({ user, accessToken, onLogout, onProfileUpdated }) {
   const [taskTitle, setTaskTitle] = useState('')
   const [taskDescription, setTaskDescription] = useState('')
   const [taskPriority, setTaskPriority] = useState('medium')
+  const [taskDueDate, setTaskDueDate] = useState('')
   const [savingTask, setSavingTask] = useState(false)
 
   const [assignableUsers, setAssignableUsers] = useState([])
@@ -44,7 +49,8 @@ function Dashboard({ user, accessToken, onLogout, onProfileUpdated }) {
   const [deletingTaskId, setDeletingTaskId] = useState(null)
 
   const [showAIAssistant, setShowAIAssistant] = useState(false)
-
+  const [unreadNotificationCount, setUnreadNotificationCount] =
+  useState(0)
   const displayName =
     [user?.first_name, user?.last_name].filter(Boolean).join(' ') ||
     user?.username ||
@@ -56,12 +62,12 @@ function Dashboard({ user, accessToken, onLogout, onProfileUpdated }) {
   const allMenuItems = [
     {
       name: 'Dashboard',
-      icon: '⌂',
+      icon: '�',
       roles: ['admin', 'manager', 'employee'],
     },
     {
       name: 'My Tasks',
-      icon: '✓',
+      icon: '?',
       roles: ['admin', 'manager', 'employee'],
     },
     {
@@ -71,26 +77,40 @@ function Dashboard({ user, accessToken, onLogout, onProfileUpdated }) {
     },
     {
       name: 'Team Reports',
-      icon: '▤',
+      icon: '?',
       roles: ['admin', 'manager'],
     },
     {
       name: 'AI Assistant',
-      icon: '✧',
+      icon: '?',
       roles: ['admin', 'manager', 'employee'],
     },
     {
       name: 'Team Members',
-      icon: '♙',
+      icon: '?',
       roles: ['admin', 'manager'],
     },
     {
+      name: 'Notifications',
+      icon: '??',
+      roles: ['admin', 'manager', 'employee'],
+    },
+    {
       name: 'Settings',
-      icon: '⚙',
+      icon: '?',
       roles: ['admin', 'manager', 'employee'],
     },
   ]
+  const filteredTeamMembers = teamMembers.filter((member) => {
+    const search = memberSearch.toLowerCase().trim()
+    const fullName = `${member.first_name || ''} ${member.last_name || ''}`
 
+    return (
+      (member.username || '').toLowerCase().includes(search) ||
+      fullName.toLowerCase().includes(search) ||
+      (member.email || '').toLowerCase().includes(search)
+    )
+  })
   const menuItems = allMenuItems.filter((item) =>
     item.roles.includes(role),
   )
@@ -272,7 +292,49 @@ function Dashboard({ user, accessToken, onLogout, onProfileUpdated }) {
       setUpdatingRoleId(null)
     }
   }
+  async function handleUserStatusChange(member) {
+  const nextIsActive = !member.is_active
 
+  const action = nextIsActive ? 'reactivate' : 'deactivate'
+
+  const confirmed = window.confirm(
+    `Are you sure you want to ${action} ${member.username}?`,
+  )
+
+  if (!confirmed) return
+
+  setStatusUpdateError('')
+  setStatusUpdateSuccess('')
+  setUpdatingStatusId(member.id)
+
+  try {
+    await updateUserStatus(
+      accessToken,
+      member.id,
+      nextIsActive,
+    )
+
+    setTeamMembers((currentMembers) =>
+      currentMembers.map((item) =>
+        item.id === member.id
+          ? { ...item, is_active: nextIsActive }
+          : item,
+      ),
+    )
+
+    setStatusUpdateSuccess(
+      `${member.username} has been ${
+        nextIsActive ? 'reactivated' : 'deactivated'
+      } successfully.`,
+    )
+  } catch (error) {
+    setStatusUpdateError(
+      error.message || 'Unable to update user status.',
+    )
+  } finally {
+    setUpdatingStatusId(null)
+  }
+}
   // Create a task.
   async function handleCreateTask(event) {
     event.preventDefault()
@@ -302,6 +364,9 @@ function Dashboard({ user, accessToken, onLogout, onProfileUpdated }) {
         priority: taskPriority,
         status: 'pending',
         assigned_to: Number(assignedTo),
+        due_date: taskDueDate
+          ? new Date(taskDueDate).toISOString()
+          : null,
       })
 
       // The task list is for the current user's assigned tasks.
@@ -312,6 +377,7 @@ function Dashboard({ user, accessToken, onLogout, onProfileUpdated }) {
       setTaskTitle('')
       setTaskDescription('')
       setTaskPriority('medium')
+      setTaskDueDate('')
       setAssignedTo('')
       setShowTaskForm(false)
       setActiveMenu('Dashboard')
@@ -498,7 +564,7 @@ function Dashboard({ user, accessToken, onLogout, onProfileUpdated }) {
     )
   }
 
-  // Team Members page — Admin and manager.
+  // Team Members page � Admin and manager.
   if (
     activeMenu === 'Team Members' &&
     ['admin', 'manager'].includes(role)
@@ -544,7 +610,30 @@ function Dashboard({ user, accessToken, onLogout, onProfileUpdated }) {
           </div>
         )}
 
+        {statusUpdateError && (
+          <div className="alert alert-danger py-2" role="alert">
+            {statusUpdateError}
+          </div>
+        )}
+
+        {statusUpdateSuccess && (
+          <div className="alert alert-success py-2" role="status">
+            {statusUpdateSuccess}
+          </div>
+        )}
+
         {!loadingMembers && !membersError && (
+        <div>
+          <div className="mb-3">
+            <input
+              type="text"
+              className="form-control"
+              placeholder="Search by username, name, or email..."
+              value={memberSearch}
+              onChange={(event) => setMemberSearch(event.target.value)}
+            />
+          </div>
+
           <div className="card border-0 shadow-sm">
             <div className="table-responsive">
               <table className="table table-hover align-middle mb-0">
@@ -559,22 +648,22 @@ function Dashboard({ user, accessToken, onLogout, onProfileUpdated }) {
                 </thead>
 
                 <tbody>
-                  {teamMembers.length === 0 ? (
+                  {filteredTeamMembers.length === 0 ? (
                     <tr>
                       <td colSpan={5} className="text-center py-4">
                         No team members found.
                       </td>
                     </tr>
                   ) : (
-                    teamMembers.map((member) => (
+                    filteredTeamMembers.map((member) => (
                       <tr key={member.id}>
                         <td>{member.username}</td>
                         <td>
                           {[member.first_name, member.last_name]
                             .filter(Boolean)
-                            .join(' ') || '—'}
+                            .join(' ') || '�'}
                         </td>
-                        <td>{member.email || '—'}</td>
+                        <td>{member.email || '�'}</td>
                         <td>
                           {role === 'admin' && (
                             <select
@@ -604,15 +693,36 @@ function Dashboard({ user, accessToken, onLogout, onProfileUpdated }) {
                           )}
                         </td>
                         <td>
-                          <span
-                            className={`badge ${
-                              member.is_active
-                                ? 'text-bg-success'
-                                : 'text-bg-secondary'
-                            }`}
-                          >
-                            {member.is_active ? 'Active' : 'Inactive'}
-                          </span>
+                          <div className="d-flex align-items-center gap-2 flex-wrap">
+                            <span
+                              className={`badge ${
+                                member.is_active
+                                  ? 'text-bg-success'
+                                  : 'text-bg-secondary'
+                              }`}
+                            >
+                              {member.is_active ? 'Active' : 'Inactive'}
+                            </span>
+
+                            {role === 'admin' && member.id !== user?.id && (
+                              <button
+                                type="button"
+                                className={`btn btn-sm ${
+                                  member.is_active
+                                    ? 'btn-outline-danger'
+                                    : 'btn-outline-success'
+                                }`}
+                                disabled={updatingStatusId === member.id}
+                                onClick={() => handleUserStatusChange(member)}
+                              >
+                                {updatingStatusId === member.id
+                                  ? 'Updating...'
+                                  : member.is_active
+                                    ? 'Deactivate'
+                                    : 'Reactivate'}
+                              </button>
+                            )}
+                          </div>
                         </td>
                       </tr>
                     ))
@@ -621,12 +731,13 @@ function Dashboard({ user, accessToken, onLogout, onProfileUpdated }) {
               </table>
             </div>
           </div>
+        </div>
         )}
       </div>
     )
   }
 
-  // Team Reports page — Admin and Manager only.
+  // Team Reports page � Admin and Manager only.
   if (
     activeMenu === 'Team Reports' &&
     canManageTasks
@@ -845,7 +956,7 @@ function Dashboard({ user, accessToken, onLogout, onProfileUpdated }) {
                                   .filter(Boolean)
                                   .join(' ') ||
                                   member.username ||
-                                  '—'}
+                                  '�'}
                               </div>
 
                               {member.username && (
@@ -855,7 +966,7 @@ function Dashboard({ user, accessToken, onLogout, onProfileUpdated }) {
                               )}
                             </td>
 
-                            <td>{member.email || '—'}</td>
+                            <td>{member.email || '�'}</td>
                             <td>
                               <span className="badge text-bg-primary">
                                 {member.total_tasks ?? 0}
@@ -958,8 +1069,23 @@ function Dashboard({ user, accessToken, onLogout, onProfileUpdated }) {
                     : '1px solid transparent',
               }}
             >
-              <span className="fs-5" style={{ width: 24 }}>
+              <span
+                className="fs-5 position-relative"
+                style={{ width: 24, display: 'inline-block' }}
+              >
                 {item.icon}
+
+                {item.name === 'Notifications' &&
+                  unreadNotificationCount > 0 && (
+                  <span
+                    className="position-absolute top-0 start-100 translate-middle badge rounded-pill text-bg-danger"
+                    style={{ fontSize: '10px' }}
+                  >
+                    {unreadNotificationCount > 99
+                      ? '99+'
+                      : unreadNotificationCount}
+                  </span>
+                )}
               </span>
               {item.name}
             </button>
@@ -973,7 +1099,7 @@ function Dashboard({ user, accessToken, onLogout, onProfileUpdated }) {
             border: '1px solid #344c73',
           }}
         >
-          <div className="fw-bold">✧ Smart Desk AI</div>
+          <div className="fw-bold">? Smart Desk AI</div>
           <small className="text-white-50">
             Work Smarter, Together
           </small>
@@ -999,7 +1125,17 @@ function Dashboard({ user, accessToken, onLogout, onProfileUpdated }) {
             Logout
           </button>
         </div>
-
+        {activeMenu === 'Notifications' && (
+          <Notifications
+            accessToken={accessToken}
+            onUnreadCountChange={setUnreadNotificationCount}
+            onOpenTask={(taskId) => {
+              setHighlightedTaskId(Number(taskId))
+              setActiveMenu('My Tasks')
+              setTaskError('')
+            }}
+          />
+        )}
         {/* Dashboard overview */}
         {activeMenu === 'Dashboard' && (
           <>
@@ -1007,9 +1143,9 @@ function Dashboard({ user, accessToken, onLogout, onProfileUpdated }) {
               <p className="text-primary fw-semibold mb-1">
                 WELCOME BACK
               </p>
-              <h1 className="fw-bold">Hello, {displayName}! 👋</h1>
+              <h1 className="fw-bold">Hello, {displayName}! ??</h1>
               <p className="text-secondary">
-                Here’s what’s happening with your work today.
+                Here�s what�s happening with your work today.
               </p>
             </div>
 
@@ -1090,7 +1226,7 @@ function Dashboard({ user, accessToken, onLogout, onProfileUpdated }) {
                   <div className="col-12 col-md-4">
                     <div className="card border-0 shadow-sm h-100">
                       <div className="card-body p-4">
-                        <div className="fs-2 text-primary">＋</div>
+                        <div className="fs-2 text-primary">+</div>
                         <h5 className="fw-bold mt-2">Create Task</h5>
                         <p className="text-secondary">
                           Create and assign work to an employee.
@@ -1114,7 +1250,7 @@ function Dashboard({ user, accessToken, onLogout, onProfileUpdated }) {
                 <div className="col-12 col-md-4">
                   <div className="card border-0 shadow-sm h-100">
                     <div className="card-body p-4">
-                      <div className="fs-2 text-success">✓</div>
+                      <div className="fs-2 text-success">?</div>
                       <h5 className="fw-bold mt-2">My Tasks</h5>
                       <p className="text-secondary">
                         View and update your assigned tasks.
@@ -1134,7 +1270,7 @@ function Dashboard({ user, accessToken, onLogout, onProfileUpdated }) {
                   <div className="col-12 col-md-4">
                     <div className="card border-0 shadow-sm h-100">
                       <div className="card-body p-4">
-                        <div className="fs-2 text-info">▤</div>
+                        <div className="fs-2 text-info">?</div>
                         <h5 className="fw-bold mt-2">Team Reports</h5>
                         <p className="text-secondary">
                           Review employee task progress.
@@ -1158,7 +1294,7 @@ function Dashboard({ user, accessToken, onLogout, onProfileUpdated }) {
                         className="fs-2"
                         style={{ color: '#7952f6' }}
                       >
-                        ✧
+                        ?
                       </div>
                       <h5 className="fw-bold mt-2">AI Assistant</h5>
                       <p className="text-secondary">
@@ -1297,7 +1433,24 @@ function Dashboard({ user, accessToken, onLogout, onProfileUpdated }) {
                     <option value="high">High</option>
                   </select>
                 </div>
+                <div className="mb-3">
+                  <label htmlFor="taskDueDate" className="form-label">
+                    Deadline (Optional)
+                  </label>
 
+                  <input
+                    id="taskDueDate"
+                    type="datetime-local"
+                    className="form-control"
+                    value={taskDueDate}
+                    onChange={(event) => setTaskDueDate(event.target.value)}
+                    disabled={savingTask}
+                  />
+
+                  <small className="text-secondary">
+                    Select the date and time by which this task should be completed.
+                  </small>
+                </div>
                 <div className="mb-3">
                   <label htmlFor="assignedTo" className="form-label">
                     Assign to Employee
@@ -1465,7 +1618,7 @@ function Dashboard({ user, accessToken, onLogout, onProfileUpdated }) {
                     <option value="priority">
                       Priority: High to Low
                     </option>
-                    <option value="title">Title: A–Z</option>
+                    <option value="title">Title: A�Z</option>
                   </select>
                 </div>
               </div>
@@ -1497,7 +1650,14 @@ function Dashboard({ user, accessToken, onLogout, onProfileUpdated }) {
                 <div className="row g-3 mt-2">
                   {filteredTasks.map((task) => (
                     <div className="col-12 col-lg-6" key={task.id}>
-                      <div className="p-3 border rounded-3 h-100">
+                      <div
+                        id={`task-${task.id}`}
+                        className={`p-3 border rounded-3 h-100 ${
+                          highlightedTaskId === Number(task.id)
+                            ? 'border-primary border-3 bg-light'
+                            : ''
+                        }`}
+                      >
                         {editingTaskId === task.id && canManageTasks ? (
                           <form
                             onSubmit={(event) =>

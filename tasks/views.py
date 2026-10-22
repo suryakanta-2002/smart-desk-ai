@@ -9,7 +9,7 @@ from .models import Task
 from .serializers import TaskSerializer
 from users.models import User
 from users.permissions import has_permission
-
+from notifications.models import Notification
 
 def can_manage_tasks(user):
     return has_permission(user, 'manage_tasks')
@@ -32,7 +32,16 @@ class TaskListCreateView(generics.ListCreateAPIView):
             )
 
         return super().create(request, *args, **kwargs)
+    def perform_create(self, serializer):
+        task = serializer.save()
 
+        Notification.objects.create(
+            recipient=task.assigned_to,
+            title='New Task Assigned',
+            message=f'You have been assigned a new task: {task.title}',
+            notification_type='task_assigned',
+            task=task,
+        )
 
 class TaskUpdateView(generics.UpdateAPIView):
     serializer_class = TaskSerializer
@@ -49,9 +58,7 @@ class TaskUpdateView(generics.UpdateAPIView):
 
     def partial_update(self, request, *args, **kwargs):
         if not can_manage_tasks(request.user):
-            allowed_fields = {'status'}
-
-            if not set(request.data.keys()).issubset(allowed_fields):
+            if set(request.data.keys()) != {'status'}:
                 return Response(
                     {
                         'detail': (
@@ -61,22 +68,61 @@ class TaskUpdateView(generics.UpdateAPIView):
                     status=status.HTTP_403_FORBIDDEN,
                 )
 
-        return super().partial_update(request, *args, **kwargs)
+        kwargs['partial'] = True
+        return self.update(request, *args, **kwargs)
 
     def update(self, request, *args, **kwargs):
         if not can_manage_tasks(request.user):
-            return Response(
-                {
-                    'detail': (
-                        'Employees can update only their task status '
-                        'using a partial update.'
-                    )
-                },
-                status=status.HTTP_403_FORBIDDEN,
-            )
+            if request.method != 'PATCH':
+                return Response(
+                    {
+                        'detail': (
+                            'Employees can update only their task status '
+                            'using a partial update.'
+                        )
+                    },
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+
+            if set(request.data.keys()) != {'status'}:
+                return Response(
+                    {
+                        'detail': (
+                            'Employees can update only their task status.'
+                        )
+                    },
+                    status=status.HTTP_403_FORBIDDEN,
+                )
 
         return super().update(request, *args, **kwargs)
 
+
+    def perform_update(self, serializer):
+        old_status = serializer.instance.status
+
+        task = serializer.save()
+
+        if old_status != 'completed' and task.status == 'completed':
+            managers = User.objects.filter(
+                is_active=True,
+                role__name__in=['Admin', 'Manager'],
+            )
+
+            notifications = [
+                Notification(
+                    recipient=manager,
+                    title='Task Completed',
+                    message=(
+                        f'{task.assigned_to.username} completed '
+                        f'the task: {task.title}'
+                    ),
+                    notification_type='task_completed',
+                    task=task,
+                )
+                for manager in managers
+            ]
+
+            Notification.objects.bulk_create(notifications)
 
 class TaskDeleteView(generics.DestroyAPIView):
     serializer_class = TaskSerializer
