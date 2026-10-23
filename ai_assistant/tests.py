@@ -363,9 +363,9 @@ class AIChatAPITest(APITestCase):
         self.assertEqual(response.status_code, 401)
 
     @patch("ai_assistant.views.os.getenv")
-    @patch("ai_assistant.views.OpenAI")
-    def test_openai_can_summarize_own_task(
-        self, mock_openai, mock_getenv
+    @patch("ai_assistant.views.Groq")
+    def test_groq_can_summarize_own_task(
+        self, mock_groq, mock_getenv
     ):
         from tasks.models import Task
 
@@ -382,11 +382,11 @@ class AIChatAPITest(APITestCase):
         )
 
         mock_getenv.side_effect = lambda key, default=None: {
-            "OPENAI_API_KEY": "test-key",
-            "OPENAI_MODEL": "gpt-4.1-mini",
+            "GROQ_API_KEY": "test-key",
+            "GROQ_MODEL": "openai/gpt-oss-20b",
         }.get(key, default)
 
-        mock_openai.return_value.responses.create.return_value.output_text = (
+        mock_groq.return_value.chat.completions.create.return_value.choices[0].message.content= (
             "Document the API endpoints and authentication flow."
         )
 
@@ -399,7 +399,7 @@ class AIChatAPITest(APITestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data["action"], "summarize")
         self.assertIn("API endpoints", response.data["answer"])
-        mock_openai.return_value.responses.create.assert_called_once()
+        mock_groq.return_value.chat.completions.create.assert_called_once()
 
     def test_openai_rejects_invalid_action(self):
         RolePermission.objects.get_or_create(
@@ -444,9 +444,9 @@ class AIChatAPITest(APITestCase):
         self.assertEqual(response.status_code, 403)
 
     @patch("ai_assistant.views.os.getenv", return_value=None)
-    @patch("ai_assistant.views.OpenAI")
-    def test_openai_missing_api_key_returns_503(
-        self, mock_openai, mock_getenv
+    @patch("ai_assistant.views.Groq")
+    def test_groq_missing_api_key_returns_503(
+        self, mock_groq, mock_getenv
     ):
         RolePermission.objects.get_or_create(
             role=self.employee_role,
@@ -464,4 +464,4 @@ class AIChatAPITest(APITestCase):
         )
 
         self.assertEqual(response.status_code, 503)
-        mock_openai.assert_not_called()
+        mock_groq.assert_not_called()

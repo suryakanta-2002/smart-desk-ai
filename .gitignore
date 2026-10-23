@@ -11,3 +11,6 @@ db.sqlite3
 # Node.js dependencies
 node_modules/
 **/node_modules/
+# Database backups
+backups/
+*.sql

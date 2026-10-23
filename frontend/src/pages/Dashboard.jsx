@@ -1,4 +1,4 @@
-﻿import { useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import {getTasks,createTask,updateTask,deleteTask,getUsers,getAssignableUsers,assignUserRole,updateUserStatus,getTeamReports, sendGroqWorkRequest,} from '../api/client.js'
 import AIAssistant from './AIAssistant.jsx'
 import Profile from './Profile'
@@ -1320,9 +1320,9 @@ function Dashboard({ user, accessToken, onLogout, onProfileUpdated }) {
               <p className="text-primary fw-semibold mb-1">
                 WELCOME BACK
               </p>
-              <h1 className="fw-bold">Hello, {displayName}! ??</h1>
+              <h1 className="fw-bold">Hello, {displayName}!</h1>
               <p className="text-secondary">
-                Here�s what�s happening with your work today.
+                Here&apos;s what&apos;s happening with your work today.
               </p>
             </div>
 
@@ -1427,7 +1427,7 @@ function Dashboard({ user, accessToken, onLogout, onProfileUpdated }) {
                 <div className="col-12 col-md-4">
                   <div className="card border-0 shadow-sm h-100">
                     <div className="card-body p-4">
-                      <div className="fs-2 text-success">?</div>
+                      <div className="fs-2 text-success">&#10003;</div>
                       <h5 className="fw-bold mt-2">My Tasks</h5>
                       <p className="text-secondary">
                         View and update your assigned tasks.
@@ -1447,7 +1447,7 @@ function Dashboard({ user, accessToken, onLogout, onProfileUpdated }) {
                   <div className="col-12 col-md-4">
                     <div className="card border-0 shadow-sm h-100">
                       <div className="card-body p-4">
-                        <div className="fs-2 text-info">?</div>
+                        <div className="fs-2 text-info">&#128202;</div>
                         <h5 className="fw-bold mt-2">Team Reports</h5>
                         <p className="text-secondary">
                           Review employee task progress.
@@ -1471,7 +1471,7 @@ function Dashboard({ user, accessToken, onLogout, onProfileUpdated }) {
                         className="fs-2"
                         style={{ color: '#7952f6' }}
                       >
-                        ?
+                        &#10024;
                       </div>
                       <h5 className="fw-bold mt-2">AI Assistant</h5>
                       <p className="text-secondary">

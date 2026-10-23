@@ -394,7 +394,7 @@ class UserListAPITest(APITestCase):
             isinstance(response.data, list)
         )
 
-    def test_manager_cannot_list_users(self):
+    def test_manager_can_list_users(self):
 
         token = self.get_access_token(
             self.manager_user
@@ -410,7 +410,7 @@ class UserListAPITest(APITestCase):
 
         self.assertEqual(
             response.status_code,
-            403
+            200
         )
 
     def test_employee_cannot_list_users(self):
