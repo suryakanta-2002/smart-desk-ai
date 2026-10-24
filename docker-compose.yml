@@ -6,9 +6,9 @@
     env_file:
       - .env
     environment:
-      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-local-docker-development-key-change-me}
-      DJANGO_DEBUG: "True"
-      DJANGO_ALLOWED_HOSTS: localhost,127.0.0.1,backend
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:?Set DJANGO_SECRET_KEY in .env}
+      DJANGO_DEBUG: ${DJANGO_DEBUG:-False}
+      DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:-localhost,127.0.0.1,backend}
       DB_HOST: host.docker.internal
       DB_PORT: "3306"
     ports:
