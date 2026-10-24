@@ -15,11 +15,15 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Create CI-only environment file
+        run: |
+          printf "DJANGO_SECRET_KEY=ci-only-dummy-key-not-for-production\nDJANGO_DEBUG=False\nDJANGO_ALLOWED_HOSTS=localhost,127.0.0.1,backend\n" > .env
+
       - name: Validate Docker Compose
         run: docker compose config --quiet
 
       - name: Build backend image
-        run: docker build -t smart-desk-ai-backend ./ 
+        run: docker build -t smart-desk-ai-backend ./
 
       - name: Build frontend image
         run: docker build -t smart-desk-ai-frontend ./frontend
