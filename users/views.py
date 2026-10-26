@@ -96,11 +96,16 @@ def send_resend_email(to_email, subject, body):
         )
         response.raise_for_status()
         return True
-    except requests.RequestException:
-        logger.exception("Resend email delivery failed.")
+    except requests.RequestException as exc:
+        if exc.response is not None:
+            logger.error(
+                "Resend email delivery failed: HTTP %s - %s",
+                exc.response.status_code,
+                exc.response.text[:500],
+            )
+        else:
+            logger.exception("Resend email delivery failed.")
         return False
-
-
 def create_and_send_otp(user, purpose):
     # Invalidate any previous OTP for this user and purpose.
     EmailOTP.objects.filter(
