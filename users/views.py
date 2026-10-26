@@ -178,48 +178,49 @@ class RegisterView(APIView):
             }, status=status.HTTP_201_CREATED)
 
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-
 class LoginView(APIView):
     permission_classes = [AllowAny]
     authentication_classes = []
 
     def post(self, request):
-        serializer = LoginSerializer(data=request.data)
+        try:
+            serializer = LoginSerializer(data=request.data)
 
-        if not serializer.is_valid():
-            return Response(
-                serializer.errors,
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+            if not serializer.is_valid():
+                return Response(
+                    serializer.errors,
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
 
-        user = serializer.validated_data["user"]
+            user = serializer.validated_data["user"]
 
-        if not user.is_active:
-            return Response(
-                {"detail": "This account is inactive."},
-                status=status.HTTP_403_FORBIDDEN,
-            )
+            if not user.is_active:
+                return Response(
+                    {"detail": "This account is inactive."},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
 
-        if not user.email:
-            return Response(
-                {"detail": "This account does not have a registered email."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+            if not user.email:
+                return Response(
+                    {"detail": "This account does not have a registered email."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
 
-        if not create_and_send_otp(user, "login"):
-            return Response(
-                {"detail": "Unable to send verification code. Please try again later."},
-                status=status.HTTP_503_SERVICE_UNAVAILABLE,
-            )
+            if not create_and_send_otp(user, "login"):
+                return Response(
+                    {"detail": "Unable to send verification code. Please try again later."},
+                    status=status.HTTP_503_SERVICE_UNAVAILABLE,
+                )
 
-        return Response({
-            "message": "Verification code sent to your registered email.",
-            "otp_required": True,
-            "username": user.username,
-        }, status=status.HTTP_200_OK)
+            return Response({
+                "message": "Verification code sent to your registered email.",
+                "otp_required": True,
+                "username": user.username,
+            }, status=status.HTTP_200_OK)
 
-
+        except Exception:
+            logger.exception("LOGIN_ENDPOINT_FAILED")
+            raise
 class LoginOTPVerifyView(APIView):
     permission_classes = [AllowAny]
     authentication_classes = []
