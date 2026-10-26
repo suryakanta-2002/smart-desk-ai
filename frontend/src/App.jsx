@@ -9,7 +9,7 @@ import {
 } from './api/client.js'
 import Dashboard from './pages/Dashboard.jsx'
 
-const API_BASE = 'http://127.0.0.1:8000/api/auth'
+const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000/api/auth'
 const RECAPTCHA_SITE_KEY = import.meta.env.VITE_RECAPTCHA_SITE_KEY
 
 function App() {
