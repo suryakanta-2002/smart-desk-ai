@@ -3,38 +3,38 @@ import { useState } from 'react'
 import ReCAPTCHA from 'react-google-recaptcha'
 import {
   loginUser,
+  verifyLoginOTP,
   getUserProfile,
   requestPasswordReset,
   confirmPasswordReset,
 } from './api/client.js'
 import Dashboard from './pages/Dashboard.jsx'
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000/api/auth'
+const API_BASE =
+  import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000'
+
 const RECAPTCHA_SITE_KEY = import.meta.env.VITE_RECAPTCHA_SITE_KEY
 
 function App() {
-  const [page, setPage] = useState(() => {
-    const params = new URLSearchParams(window.location.search)
-    return params.get('page') === 'reset' ? 'reset' : 'login'
-  })
+  const [page, setPage] = useState('login')
 
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
+  const [loginOtp, setLoginOtp] = useState('')
+  const [loginOtpSent, setLoginOtpSent] = useState(false)
+
   const [firstName, setFirstName] = useState('')
   const [lastName, setLastName] = useState('')
   const [email, setEmail] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [captchaToken, setCaptchaToken] = useState(null)
+
   const [resetEmail, setResetEmail] = useState('')
+  const [resetOtp, setResetOtp] = useState('')
+  const [resetOtpSent, setResetOtpSent] = useState(false)
   const [resetPassword, setResetPassword] = useState('')
   const [resetConfirmPassword, setResetConfirmPassword] = useState('')
 
-  const [resetUid] = useState(
-    () => new URLSearchParams(window.location.search).get('uid') || '',
-  )
-  const [resetToken] = useState(
-    () => new URLSearchParams(window.location.search).get('token') || '',
-  )
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
   const [loading, setLoading] = useState(false)
@@ -45,6 +45,18 @@ function App() {
     setError('')
     setSuccess('')
     setCaptchaToken(null)
+
+    if (nextPage !== 'login') {
+      setLoginOtp('')
+      setLoginOtpSent(false)
+    }
+
+    if (nextPage !== 'reset') {
+      setResetOtp('')
+      setResetOtpSent(false)
+      setResetPassword('')
+      setResetConfirmPassword('')
+    }
   }
 
   async function handleSubmit(event) {
@@ -54,10 +66,27 @@ function App() {
     setLoading(true)
 
     try {
-      const tokenData = await loginUser(username, password)
+      // Step 1: Check username/password and send OTP.
+      if (!loginOtpSent) {
+        const data = await loginUser(username.trim(), password)
 
-      if (!tokenData.access) {
-        throw new Error('Access token was not received.')
+        setLoginOtpSent(true)
+        setSuccess(
+          data.message ||
+            'If your credentials are valid, a login OTP has been sent to your registered email.',
+        )
+        return
+      }
+
+      // Step 2: Verify OTP and receive JWT tokens.
+      if (!/^\d{6}$/.test(loginOtp)) {
+        throw new Error('Please enter the 6-digit OTP.')
+      }
+
+      const tokenData = await verifyLoginOTP(username.trim(), loginOtp)
+
+      if (!tokenData.access || !tokenData.refresh) {
+        throw new Error('Access or refresh token was not received.')
       }
 
       const user = await getUserProfile(tokenData.access)
@@ -73,60 +102,69 @@ function App() {
       setLoading(false)
     }
   }
-  
-async function handlePasswordResetRequest(event) {
-  event.preventDefault()
-  setError('')
-  setSuccess('')
-  setLoading(true)
 
-  try {
-    const data = await requestPasswordReset(resetEmail.trim())
-    setSuccess(data.message)
-  } catch (err) {
-    setError(err.message || 'Unable to request password reset.')
-  } finally {
-    setLoading(false)
-  }
-}
+  async function handlePasswordResetRequest(event) {
+    event.preventDefault()
+    setError('')
+    setSuccess('')
+    setLoading(true)
 
-async function handlePasswordReset(event) {
-  event.preventDefault()
-  setError('')
-  setSuccess('')
+    try {
+      const data = await requestPasswordReset(resetEmail.trim())
 
-  if (!resetUid || !resetToken) {
-    setError('Reset link is invalid or missing. Please request a new link.')
-    return
+      setResetOtpSent(true)
+      setPage('reset')
+      setSuccess(
+        data.message ||
+          'If an account exists for this email, a password-reset OTP has been sent.',
+      )
+    } catch (err) {
+      setError(err.message || 'Unable to request password reset.')
+    } finally {
+      setLoading(false)
+    }
   }
 
-  if (resetPassword !== resetConfirmPassword) {
-    setError('Passwords do not match.')
-    return
+  async function handlePasswordReset(event) {
+    event.preventDefault()
+    setError('')
+    setSuccess('')
+
+    if (!/^\d{6}$/.test(resetOtp)) {
+      setError('Please enter the 6-digit OTP.')
+      return
+    }
+
+    if (resetPassword !== resetConfirmPassword) {
+      setError('Passwords do not match.')
+      return
+    }
+
+    setLoading(true)
+
+    try {
+      const data = await confirmPasswordReset(
+        resetEmail.trim(),
+        resetOtp,
+        resetPassword,
+        resetConfirmPassword,
+      )
+
+      setPage('login')
+      setPassword('')
+      setLoginOtp('')
+      setLoginOtpSent(false)
+      setResetOtp('')
+      setResetOtpSent(false)
+      setResetPassword('')
+      setResetConfirmPassword('')
+      setSuccess(data.message || 'Password reset successfully. Please sign in.')
+    } catch (err) {
+      setError(err.message || 'Unable to reset password.')
+    } finally {
+      setLoading(false)
+    }
   }
-
-  setLoading(true)
-
-  try {
-    const data = await confirmPasswordReset(
-      resetUid,
-      resetToken,
-      resetPassword,
-      resetConfirmPassword,
-    )
-
-    window.history.replaceState({}, '', window.location.pathname)
-    setPage('login')
-    setPassword('')
-    setResetPassword('')
-    setResetConfirmPassword('')
-    setSuccess(data.message)
-  } catch (err) {
-    setError(err.message || 'Unable to reset password.')
-  } finally {
-    setLoading(false)
-  }
-}
 
   async function handleRegister(event) {
     event.preventDefault()
@@ -162,7 +200,7 @@ async function handlePasswordReset(event) {
         }),
       })
 
-      const data = await response.json()
+      const data = await response.json().catch(() => ({}))
 
       if (!response.ok) {
         const message = Object.entries(data)
@@ -184,6 +222,8 @@ async function handlePasswordReset(event) {
       setPage('login')
       setPassword('')
       setConfirmPassword('')
+      setLoginOtp('')
+      setLoginOtpSent(false)
       setCaptchaToken(null)
     } catch (err) {
       setError(err.message || 'Registration failed.')
@@ -197,8 +237,11 @@ async function handlePasswordReset(event) {
     setSession(null)
     setUsername('')
     setPassword('')
+    setLoginOtp('')
+    setLoginOtpSent(false)
     setError('')
     setSuccess('')
+    setPage('login')
   }
 
   function handleProfileUpdated(updatedUser) {
@@ -244,8 +287,10 @@ async function handlePasswordReset(event) {
                 : page === 'forgot'
                   ? 'Recover your account'
                   : page === 'reset'
-                    ? 'Create a new password'
-                    : 'Sign in to your workspace'}
+                    ? 'Verify OTP and create a new password'
+                    : loginOtpSent
+                      ? 'Verify your login OTP'
+                      : 'Sign in to your workspace'}
             </p>
           </div>
 
@@ -263,57 +308,108 @@ async function handlePasswordReset(event) {
 
           {page === 'login' && (
             <form onSubmit={handleSubmit}>
-              <div className="mb-3">
-                <label htmlFor="username" className="form-label">
-                  Username
-                </label>
+              {!loginOtpSent ? (
+                <>
+                  <div className="mb-3">
+                    <label htmlFor="username" className="form-label">
+                      Username
+                    </label>
+                    <input
+                      id="username"
+                      type="text"
+                      className="form-control form-control-lg"
+                      placeholder="Enter your username"
+                      value={username}
+                      onChange={(event) => setUsername(event.target.value)}
+                      autoComplete="username"
+                      required
+                    />
+                  </div>
 
-                <input
-                  id="username"
-                  type="text"
-                  className="form-control form-control-lg"
-                  placeholder="Enter your username"
-                  value={username}
-                  onChange={(event) => setUsername(event.target.value)}
-                  autoComplete="username"
-                  required
-                />
-              </div>
+                  <div className="mb-3">
+                    <label htmlFor="login-password" className="form-label">
+                      Password
+                    </label>
+                    <input
+                      id="login-password"
+                      type="password"
+                      className="form-control form-control-lg"
+                      placeholder="Enter your password"
+                      value={password}
+                      onChange={(event) => setPassword(event.target.value)}
+                      autoComplete="current-password"
+                      required
+                    />
+                  </div>
 
-              <div className="mb-3">
-                <label htmlFor="login-password" className="form-label">
-                  Password
-                </label>
+                  <div className="text-end mb-3">
+                    <button
+                      type="button"
+                      className="btn btn-link p-0 text-decoration-none"
+                      onClick={() => changePage('forgot')}
+                    >
+                      Forgot Password?
+                    </button>
+                  </div>
 
-                <input
-                  id="login-password"
-                  type="password"
-                  className="form-control form-control-lg"
-                  placeholder="Enter your password"
-                  value={password}
-                  onChange={(event) => setPassword(event.target.value)}
-                  autoComplete="current-password"
-                  required
-                />
-              </div>
+                  <button
+                    type="submit"
+                    className="btn btn-primary btn-lg w-100"
+                    disabled={loading}
+                  >
+                    {loading ? 'Sending OTP...' : 'Continue'}
+                  </button>
+                </>
+              ) : (
+                <>
+                  <p className="text-secondary">
+                    Enter the 6-digit OTP sent to your registered email.
+                    The OTP expires after 5 minutes.
+                  </p>
 
-              <div className="text-end mb-3">
-                <button
-                  type="button"
-                  className="btn btn-link p-0 text-decoration-none"
-                  onClick={() => changePage('forgot')}
-                >
-                  Forgot Password?
-                </button>
-              </div>
+                  <div className="mb-3">
+                    <label htmlFor="login-otp" className="form-label">
+                      Login OTP
+                    </label>
+                    <input
+                      id="login-otp"
+                      type="text"
+                      inputMode="numeric"
+                      className="form-control form-control-lg"
+                      placeholder="Enter 6-digit OTP"
+                      value={loginOtp}
+                      onChange={(event) =>
+                        setLoginOtp(event.target.value.replace(/\D/g, '').slice(0, 6))
+                      }
+                      autoComplete="one-time-code"
+                      maxLength={6}
+                      pattern="[0-9]{6}"
+                      required
+                    />
+                  </div>
 
-              <button
-                type="submit"
-                className="btn btn-primary btn-lg w-100"
-                disabled={loading}
-              >
-                {loading ? 'Signing in...' : 'Sign In'}
-              </button>
+                  <button
+                    type="submit"
+                    className="btn btn-primary btn-lg w-100"
+                    disabled={loading || loginOtp.length !== 6}
+                  >
+                    {loading ? 'Verifying...' : 'Verify OTP & Sign In'}
+                  </button>
+
+                  <button
+                    type="button"
+                    className="btn btn-link w-100 mt-2"
+                    onClick={() => {
+                      setLoginOtp('')
+                      setLoginOtpSent(false)
+                      setError('')
+                      setSuccess('')
+                    }}
+                  >
+                    Back to Login
+                  </button>
+                </>
+              )}
 
               <p className="text-center mt-4 mb-0">
                 Don't have an account?{' '}
@@ -462,19 +558,18 @@ async function handlePasswordReset(event) {
               </p>
             </form>
           )}
-          
+
           {page === 'forgot' && (
             <form onSubmit={handlePasswordResetRequest}>
               <p className="text-secondary">
-                Enter your registered email address. We will send a reset link
-                if an account exists.
+                Enter your registered email address. If an account exists,
+                we will send a 6-digit password-reset OTP.
               </p>
 
               <div className="mb-3">
                 <label htmlFor="reset-email" className="form-label">
                   Email Address
                 </label>
-
                 <input
                   id="reset-email"
                   type="email"
@@ -492,7 +587,7 @@ async function handlePasswordReset(event) {
                 className="btn btn-primary btn-lg w-100"
                 disabled={loading}
               >
-                {loading ? 'Sending...' : 'Send Reset Link'}
+                {loading ? 'Sending OTP...' : 'Send Reset OTP'}
               </button>
 
               <p className="text-center mt-3 mb-0">
@@ -506,12 +601,34 @@ async function handlePasswordReset(event) {
               </p>
             </form>
           )}
-          
+
           {page === 'reset' && (
             <form onSubmit={handlePasswordReset}>
               <p className="text-secondary">
-                Enter your new password below.
+                Enter the 6-digit OTP sent to {resetEmail}, then choose a new
+                password. The OTP expires after 5 minutes.
               </p>
+
+              <div className="mb-3">
+                <label htmlFor="reset-otp" className="form-label">
+                  Password Reset OTP
+                </label>
+                <input
+                  id="reset-otp"
+                  type="text"
+                  inputMode="numeric"
+                  className="form-control form-control-lg"
+                  placeholder="Enter 6-digit OTP"
+                  value={resetOtp}
+                  onChange={(event) =>
+                    setResetOtp(event.target.value.replace(/\D/g, '').slice(0, 6))
+                  }
+                  autoComplete="one-time-code"
+                  maxLength={6}
+                  pattern="[0-9]{6}"
+                  required
+                />
+              </div>
 
               <div className="mb-3">
                 <label htmlFor="new-password" className="form-label">
@@ -526,39 +643,51 @@ async function handlePasswordReset(event) {
                   autoComplete="new-password"
                   required
                 />
-                </div>
+              </div>
 
-                <div className="mb-3">
-                  <label htmlFor="reset-confirm-password" className="form-label">
-                    Confirm New Password
-                  </label>
-                  <input
-                    id="reset-confirm-password"
-                    type="password"
-                    className="form-control form-control-lg"
-                    value={resetConfirmPassword}
-                    onChange={(event) => setResetConfirmPassword(event.target.value)}
-                    autoComplete="new-password"
-                    required
-                  />
-                </div>
+              <div className="mb-3">
+                <label htmlFor="reset-confirm-password" className="form-label">
+                  Confirm New Password
+                </label>
+                <input
+                  id="reset-confirm-password"
+                  type="password"
+                  className="form-control form-control-lg"
+                  value={resetConfirmPassword}
+                  onChange={(event) =>
+                    setResetConfirmPassword(event.target.value)
+                  }
+                  autoComplete="new-password"
+                  required
+                />
+              </div>
 
+              <button
+                type="submit"
+                className="btn btn-primary btn-lg w-100"
+                disabled={loading || resetOtp.length !== 6}
+              >
+                {loading ? 'Resetting Password...' : 'Verify OTP & Reset Password'}
+              </button>
+
+              <button
+                type="button"
+                className="btn btn-link w-100 mt-2"
+                onClick={() => {
+                  setPage('forgot')
+                  setResetOtp('')
+                  setError('')
+                  setSuccess('')
+                }}
+              >
+                Request a New OTP
+              </button>
+
+              <p className="text-center mt-2 mb-0">
                 <button
-                  type="submit"
-                  className="btn btn-primary btn-lg w-100"
-                  disabled={loading}
-                >
-                  {loading ? 'Resetting Password...' : 'Reset Password'}
-                </button>
-
-                <p className="text-center mt-3 mb-0">
-                  <button
-                    type="button"
-                    className="btn btn-link"
-                    onClick={() => {
-                    window.history.replaceState({}, '', window.location.pathname)
-                    changePage('login')
-                  }}
+                  type="button"
+                  className="btn btn-link"
+                  onClick={() => changePage('login')}
                 >
                   Back to Sign In
                 </button>

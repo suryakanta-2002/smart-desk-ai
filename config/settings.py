@@ -153,7 +153,7 @@ STATIC_URL = 'static/'
 # Email
 # https://docs.djangoproject.com/en/6.1/topics/email/#topic-email-configuration
 
-# Email configuration
+
 # Email configuration
 EMAIL_BACKEND = os.getenv(
     "EMAIL_BACKEND",
@@ -167,10 +167,17 @@ EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER", "")
 EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD", "")
 EMAIL_TIMEOUT = 10
 
-DEFAULT_FROM_EMAIL = os.getenv(
-    "DEFAULT_FROM_EMAIL",
-    EMAIL_HOST_USER,
+# Resend API configuration
+RESEND_API_KEY = os.getenv("RESEND_API_KEY", "")
+
+# Must be an email address or sender identity verified in Resend
+DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", "")
+
+FRONTEND_URL = os.getenv(
+    "FRONTEND_URL",
+    "http://localhost:5173",
 )
+
 FRONTEND_URL = os.getenv(
     "FRONTEND_URL",
     "http://localhost:5173",

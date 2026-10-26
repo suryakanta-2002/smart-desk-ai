@@ -5,7 +5,7 @@ from .models import User, Role, Permission, RolePermission
 from .serializers import RegisterSerializer, LoginSerializer
 from rest_framework import status
 from .permissions import has_permission
-
+from unittest.mock import patch
 class RegisterSerializerTest(TestCase):
 
     def test_valid_registration_data(self):
@@ -116,9 +116,8 @@ class LoginAPITest(APITestCase):
             email="surya@test.com",
             password="Test@12345"
         )
-
-    def test_login_success(self):
-
+    @patch("users.views.create_and_send_otp", return_value=True)
+    def test_login_success(self, mock_send_otp):
         response = self.client.post(
             "/api/auth/login/",
             {
@@ -129,10 +128,9 @@ class LoginAPITest(APITestCase):
         )
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(
-            response.data["username"],
-            "surya"
-        )
+        self.assertEqual(response.data["username"], "surya")
+        self.assertTrue(response.data["otp_required"])
+        mock_send_otp.assert_called_once()
 
     def test_login_wrong_password(self):
 
