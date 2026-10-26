@@ -5,7 +5,7 @@ import secrets
 from datetime import timedelta
 
 import requests
-
+from django.core.mail import send_mail
 from django.conf import settings
 from django.contrib.auth import authenticate
 from django.contrib.auth.hashers import make_password, check_password
@@ -70,41 +70,28 @@ def verify_recaptcha(token):
 def generate_email_otp():
     return f"{secrets.randbelow(1_000_000):06d}"
 
-
 def send_resend_email(to_email, subject, body):
-    api_key = getattr(settings, "RESEND_API_KEY", "")
     from_email = getattr(settings, "DEFAULT_FROM_EMAIL", "")
+    email_user = getattr(settings, "EMAIL_HOST_USER", "")
+    email_password = getattr(settings, "EMAIL_HOST_PASSWORD", "")
 
-    if not api_key or not from_email:
-        logger.error("Resend API key or sender email is not configured.")
+    if not from_email or not email_user or not email_password:
+        logger.error("Gmail SMTP settings are missing.")
         return False
 
     try:
-        response = requests.post(
-            "https://api.resend.com/emails",
-            headers={
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json",
-            },
-            json={
-                "from": from_email,
-                "to": [to_email],
-                "subject": subject,
-                "text": body,
-            },
-            timeout=15,
+        from django.core.mail import send_mail
+
+        send_mail(
+            subject,
+            body,
+            from_email,
+            [to_email],
+            fail_silently=False,
         )
-        response.raise_for_status()
         return True
-    except requests.RequestException as exc:
-        if exc.response is not None:
-            logger.error(
-                "Resend email delivery failed: HTTP %s - %s",
-                exc.response.status_code,
-                exc.response.text[:500],
-            )
-        else:
-            logger.exception("Resend email delivery failed.")
+    except Exception:
+        logger.exception("Gmail SMTP email delivery failed.")
         return False
 def create_and_send_otp(user, purpose):
     # Invalidate any previous OTP for this user and purpose.
