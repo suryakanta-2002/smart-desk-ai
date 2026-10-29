@@ -5,24 +5,24 @@ from rest_framework_simplejwt.views import TokenRefreshView, TokenBlacklistView
 from .views import (
     RegisterView,
     LoginView,
-    LoginOTPVerifyView,
+    ChangePasswordView,
     ProfileView,
     AssignRoleView,
     UserListView,
     UserDetailView,
     UserStatusView,
-    PasswordResetRequestView,
-    PasswordResetConfirmView,
 )
 
 urlpatterns = [
-    # Registration and OTP login
+    # Registration and login
     path("register/", RegisterView.as_view(), name="register"),
     path("login/", LoginView.as_view(), name="login"),
+
+    # Change password for authenticated users
     path(
-        "login/verify-otp/",
-        LoginOTPVerifyView.as_view(),
-        name="login-verify-otp",
+        "change-password/",
+        ChangePasswordView.as_view(),
+        name="change-password",
     ),
 
     # JWT token management
@@ -42,17 +42,5 @@ urlpatterns = [
         "users/<int:user_id>/status/",
         UserStatusView.as_view(),
         name="user-status",
-    ),
-
-    # Password reset using email OTP
-    path(
-        "password-reset/",
-        PasswordResetRequestView.as_view(),
-        name="password-reset",
-    ),
-    path(
-        "password-reset/confirm/",
-        PasswordResetConfirmView.as_view(),
-        name="password-reset-confirm",
     ),
 ]

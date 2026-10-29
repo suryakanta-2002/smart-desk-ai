@@ -20,7 +20,7 @@ async function readResponse(response, fallbackMessage) {
   return data
 }
 
-// LOGIN: Username and password send  OTP request.
+// LOGIN: Username and password only.
 export async function loginUser(username, password) {
   const response = await fetch(`${API_BASE_URL}/api/auth/login/`, {
     method: 'POST',
@@ -28,23 +28,13 @@ export async function loginUser(username, password) {
     body: JSON.stringify({ username, password }),
   })
 
-  return readResponse(response, 'Login failed. Please check your credentials.')
-}
-
-// LOGIN OTP: OTP verify access and refresh tokens .
-export async function verifyLoginOTP(username, otp) {
-  const response = await fetch(
-    `${API_BASE_URL}/api/auth/login/verify-otp/`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username, otp }),
-    },
+  return readResponse(
+    response,
+    'Login failed. Please check your credentials.',
   )
-
-  return readResponse(response, 'Unable to verify login OTP.')
 }
 
+// GET LOGGED-IN USER PROFILE
 export async function getUserProfile(accessToken) {
   const response = await fetch(`${API_BASE_URL}/api/auth/profile/`, {
     headers: {
@@ -53,9 +43,39 @@ export async function getUserProfile(accessToken) {
     },
   })
 
-  return readResponse(response, 'Unable to load your profile. Please log in again.')
+  return readResponse(
+    response,
+    'Unable to load your profile. Please log in again.',
+  )
 }
 
+// CHANGE PASSWORD: Authenticated user only.
+export async function changePassword(
+  accessToken,
+  current_password,
+  new_password,
+  confirm_password,
+) {
+  const response = await fetch(
+    `${API_BASE_URL}/api/auth/change-password/`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        current_password,
+        new_password,
+        confirm_password,
+      }),
+    },
+  )
+
+  return readResponse(response, 'Unable to change password.')
+}
+
+// GET TASKS
 export async function getTasks(accessToken) {
   const response = await fetch(`${API_BASE_URL}/api/tasks/`, {
     headers: {
@@ -67,6 +87,7 @@ export async function getTasks(accessToken) {
   return readResponse(response, 'Unable to load tasks.')
 }
 
+// CREATE TASK
 export async function createTask(accessToken, task) {
   const response = await fetch(`${API_BASE_URL}/api/tasks/`, {
     method: 'POST',
@@ -80,6 +101,7 @@ export async function createTask(accessToken, task) {
   return readResponse(response, 'Unable to create task.')
 }
 
+// UPDATE TASK
 export async function updateTask(accessToken, taskId, updates) {
   const response = await fetch(`${API_BASE_URL}/api/tasks/${taskId}/`, {
     method: 'PATCH',
@@ -93,6 +115,7 @@ export async function updateTask(accessToken, taskId, updates) {
   return readResponse(response, 'Unable to update task.')
 }
 
+// DELETE TASK
 export async function deleteTask(accessToken, taskId) {
   const response = await fetch(
     `${API_BASE_URL}/api/tasks/${taskId}/delete/`,
@@ -108,6 +131,7 @@ export async function deleteTask(accessToken, taskId) {
   }
 }
 
+// GET AI CONVERSATIONS
 export async function getConversations(accessToken) {
   const response = await fetch(`${API_BASE_URL}/api/ai/conversations/`, {
     headers: {
@@ -119,7 +143,11 @@ export async function getConversations(accessToken) {
   return readResponse(response, 'Unable to load conversations.')
 }
 
-export async function createConversation(accessToken, title = 'New conversation') {
+// CREATE AI CONVERSATION
+export async function createConversation(
+  accessToken,
+  title = 'New conversation',
+) {
   const response = await fetch(`${API_BASE_URL}/api/ai/conversations/`, {
     method: 'POST',
     headers: {
@@ -132,7 +160,12 @@ export async function createConversation(accessToken, title = 'New conversation'
   return readResponse(response, 'Unable to create a conversation.')
 }
 
-export async function sendAIMessage(accessToken, conversationId, message) {
+// SEND AI MESSAGE
+export async function sendAIMessage(
+  accessToken,
+  conversationId,
+  message,
+) {
   const response = await fetch(`${API_BASE_URL}/api/ai/chat/`, {
     method: 'POST',
     headers: {
@@ -145,9 +178,13 @@ export async function sendAIMessage(accessToken, conversationId, message) {
     }),
   })
 
-  return readResponse(response, 'Unable to get a response from AI Assistant.')
+  return readResponse(
+    response,
+    'Unable to get a response from AI Assistant.',
+  )
 }
 
+// GROQ WORK REQUEST
 export async function sendGroqWorkRequest(accessToken, payload) {
   const response = await fetch(`${API_BASE_URL}/api/ai/work/`, {
     method: 'POST',
@@ -158,10 +195,17 @@ export async function sendGroqWorkRequest(accessToken, payload) {
     body: JSON.stringify(payload),
   })
 
-  return readResponse(response, 'Groq Work Assistant encountered an error.')
+  return readResponse(
+    response,
+    'Groq Work Assistant encountered an error.',
+  )
 }
 
-export async function deleteConversation(accessToken, conversationId) {
+// DELETE AI CONVERSATION
+export async function deleteConversation(
+  accessToken,
+  conversationId,
+) {
   const response = await fetch(
     `${API_BASE_URL}/api/ai/conversations/${conversationId}/`,
     {
@@ -176,7 +220,12 @@ export async function deleteConversation(accessToken, conversationId) {
   }
 }
 
-export async function renameConversation(accessToken, conversationId, title) {
+// RENAME AI CONVERSATION
+export async function renameConversation(
+  accessToken,
+  conversationId,
+  title,
+) {
   const response = await fetch(
     `${API_BASE_URL}/api/ai/conversations/${conversationId}/`,
     {
@@ -192,6 +241,7 @@ export async function renameConversation(accessToken, conversationId, title) {
   return readResponse(response, 'Unable to rename conversation.')
 }
 
+// UPDATE USER PROFILE
 export async function updateUserProfile(accessToken, profileData) {
   const response = await fetch(`${API_BASE_URL}/api/auth/profile/`, {
     method: 'PATCH',
@@ -205,6 +255,7 @@ export async function updateUserProfile(accessToken, profileData) {
   return readResponse(response, 'Unable to update your profile.')
 }
 
+// GET TEAM MEMBERS
 export async function getUsers(accessToken) {
   const response = await fetch(`${API_BASE_URL}/api/auth/users/`, {
     headers: {
@@ -216,7 +267,12 @@ export async function getUsers(accessToken) {
   return readResponse(response, 'Unable to load team members.')
 }
 
-export async function updateUserStatus(accessToken, userId, is_active) {
+// UPDATE USER STATUS
+export async function updateUserStatus(
+  accessToken,
+  userId,
+  is_active,
+) {
   const response = await fetch(
     `${API_BASE_URL}/api/auth/users/${userId}/status/`,
     {
@@ -232,6 +288,7 @@ export async function updateUserStatus(accessToken, userId, is_active) {
   return readResponse(response, 'Unable to update user status.')
 }
 
+// GET ASSIGNABLE USERS
 export async function getAssignableUsers(accessToken) {
   const response = await fetch(
     `${API_BASE_URL}/api/tasks/assignable-users/`,
@@ -246,6 +303,7 @@ export async function getAssignableUsers(accessToken) {
   return readResponse(response, 'Unable to load assignable employees.')
 }
 
+// ASSIGN USER ROLE
 export async function assignUserRole(accessToken, userId, role) {
   const response = await fetch(
     `${API_BASE_URL}/api/auth/users/${userId}/role/`,
@@ -262,6 +320,7 @@ export async function assignUserRole(accessToken, userId, role) {
   return readResponse(response, 'Unable to update user role.')
 }
 
+// GET TEAM REPORTS
 export async function getTeamReports(accessToken) {
   const response = await fetch(`${API_BASE_URL}/api/tasks/team-reports/`, {
     headers: {
@@ -273,41 +332,7 @@ export async function getTeamReports(accessToken) {
   return readResponse(response, 'Unable to load team reports.')
 }
 
-// FORGOT PASSWORD: Email OTP request.
-export async function requestPasswordReset(email) {
-  const response = await fetch(`${API_BASE_URL}/api/auth/password-reset/`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email }),
-  })
-
-  return readResponse(response, 'Unable to request password reset.')
-}
-
-// FORGOT PASSWORD: Email + OTP + new password submit.
-export async function confirmPasswordReset(
-  email,
-  otp,
-  password,
-  confirm_password,
-) {
-  const response = await fetch(
-    `${API_BASE_URL}/api/auth/password-reset/confirm/`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        email,
-        otp,
-        password,
-        confirm_password,
-      }),
-    },
-  )
-
-  return readResponse(response, 'Unable to reset password.')
-}
-
+// GET NOTIFICATIONS
 export async function getNotifications(accessToken, filter = 'all') {
   const query =
     filter === 'all'
@@ -327,6 +352,7 @@ export async function getNotifications(accessToken, filter = 'all') {
   return readResponse(response, 'Failed to load notifications.')
 }
 
+// GET UNREAD NOTIFICATION COUNT
 export async function getUnreadNotificationCount(accessToken) {
   const response = await fetch(
     `${API_BASE_URL}/api/notifications/unread-count/`,
@@ -335,11 +361,19 @@ export async function getUnreadNotificationCount(accessToken) {
     },
   )
 
-  const data = await readResponse(response, 'Failed to load unread count.')
+  const data = await readResponse(
+    response,
+    'Failed to load unread count.',
+  )
+
   return data.unread_count
 }
 
-export async function markNotificationRead(accessToken, notificationId) {
+// MARK NOTIFICATION AS READ
+export async function markNotificationRead(
+  accessToken,
+  notificationId,
+) {
   const response = await fetch(
     `${API_BASE_URL}/api/notifications/${notificationId}/read/`,
     {
@@ -354,7 +388,11 @@ export async function markNotificationRead(accessToken, notificationId) {
   return readResponse(response, 'Failed to mark notification as read.')
 }
 
-export async function deleteNotification(accessToken, notificationId) {
+// DELETE NOTIFICATION
+export async function deleteNotification(
+  accessToken,
+  notificationId,
+) {
   const response = await fetch(
     `${API_BASE_URL}/api/notifications/${notificationId}/delete/`,
     {
