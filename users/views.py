@@ -71,27 +71,42 @@ def generate_email_otp():
     return f"{secrets.randbelow(1_000_000):06d}"
 
 def send_resend_email(to_email, subject, body):
-    from_email = getattr(settings, "DEFAULT_FROM_EMAIL", "")
-    email_user = getattr(settings, "EMAIL_HOST_USER", "")
-    email_password = getattr(settings, "EMAIL_HOST_PASSWORD", "")
+    api_key = getattr(settings, "RESEND_API_KEY", "").strip()
+    from_email = getattr(settings, "DEFAULT_FROM_EMAIL", "").strip()
 
-    if not from_email or not email_user or not email_password:
-        logger.error("Gmail SMTP settings are missing.")
+    if not api_key or not from_email:
+        logger.error("Resend API key or sender email is missing.")
         return False
 
     try:
-        from django.core.mail import send_mail
-
-        send_mail(
-            subject,
-            body,
-            from_email,
-            [to_email],
-            fail_silently=False,
+        response = requests.post(
+            "https://api.resend.com/emails",
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "from": from_email,
+                "to": [to_email],
+                "subject": subject,
+                "text": body,
+            },
+            timeout=15,
         )
+
+        if response.status_code not in (200, 201):
+            logger.error(
+                "Resend failed: status=%s response=%s",
+                response.status_code,
+                response.text[:500],
+            )
+            return False
+
+        logger.info("Resend accepted verification email.")
         return True
-    except Exception:
-        logger.exception("Gmail SMTP email delivery failed.")
+
+    except requests.RequestException:
+        logger.exception("Resend HTTP request failed.")
         return False
 def create_and_send_otp(user, purpose):
     # Invalidate any previous OTP for this user and purpose.
